@@ -1,0 +1,24 @@
+node_modules/
+data/
+server/public/
+backups/
+config.json
+.env
+.env.*
+!.env.example
+*.log
+.venv-agent/
+__pycache__/
+*.pyc
+*.pem
+*.key
+
+# Local-only documents and temporary verification files
+LEARNING-QUESTIONS.md
+PLAN.md
+REQUIREMENTS.md
+test-ai.mjs
+test-api.mjs
+clean-jd.mjs
+server/src/feishu-share.test.ts
+server/src/knowledge-item-lifecycle.test.ts

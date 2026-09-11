@@ -1,0 +1,54 @@
+import { reactive } from 'vue'
+import type { Application } from './types'
+
+// 轻量全局状态：跨组件共享的 UI 状态与数据版本号
+export const store = reactive({
+  formDrawerOpen: false,        // 录入/编辑抽屉
+  editingApp: null as Application | null, // null = 新建
+  detailId: null as number | null,        // 详情抽屉对应的记录 id
+  resumeLibraryOpen: false,               // 全局简历库
+  knowledgeIngestOpen: false,   // 知识库「录入面经」弹窗
+  knowledgeVersion: 0,          // 知识库数据变更计数，视图 watch 刷新
+  dataVersion: 0,               // 数据变更计数，各视图 watch 它来刷新
+  tutorOpen: localStorage.getItem('tutorOpen') !== '0', // 学习区右侧 AI 助教栏开合
+  tutorAsk: null as string | null // 待带入助教的题目（题目卡片「问助教」点按时写入）
+})
+
+export function openCreateForm(): void {
+  store.editingApp = null
+  store.formDrawerOpen = true
+}
+
+export function openKnowledgeIngest(): void {
+  store.knowledgeIngestOpen = true
+}
+
+export function bumpKnowledge(): void {
+  store.knowledgeVersion++
+}
+
+export function openEditForm(app: Application): void {
+  store.editingApp = app
+  store.formDrawerOpen = true
+}
+
+export function openDetail(id: number): void {
+  store.detailId = id
+}
+
+export function bumpData(): void {
+  store.dataVersion++
+}
+
+/** 题目卡片「问助教」：展开助教栏并把题目带进输入框 */
+export function askTutor(question: string): void {
+  store.tutorAsk = question
+  store.tutorOpen = true
+  localStorage.setItem('tutorOpen', '1')
+}
+
+/** 助教栏开合（记忆到 localStorage） */
+export function toggleTutor(open: boolean): void {
+  store.tutorOpen = open
+  localStorage.setItem('tutorOpen', open ? '1' : '0')
+}
