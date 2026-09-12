@@ -17,7 +17,8 @@ const router = createRouter({
   history: createWebHashHistory(),
   routes: [
     // 根路径进入上次停留的工作区（默认投递跟踪）
-    { path: '/', redirect: () => (localStorage.getItem('workspace') === 'learn' ? '/learn/reviews' : '/track/kanban') },
+    // 知识库是所有已批准用户均可进入的学习入口；复盘仅在其迁入个人工作区后再由管理员入口打开。
+    { path: '/', redirect: () => (localStorage.getItem('workspace') === 'learn' ? '/learn/knowledge' : '/track/kanban') },
     // 投递跟踪
     { path: '/track/kanban', component: KanbanView },
     { path: '/track/list', component: ListView },

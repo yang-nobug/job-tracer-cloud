@@ -275,11 +275,13 @@ export class AiError extends Error {
   }
 }
 
-interface CompletionOptions extends ArkTaskConfig {
+export interface CompletionOptions extends ArkTaskConfig {
   task?: AiTask
   signal?: AbortSignal
   responseSchema?: { name: string; schema: Record<string, unknown> }
   audit?: { stage?: string; attempt?: number; retryOfCallId?: number }
+  /** 云端工作区数据不能写入旧 SQLite 审计库；迁移中的模块改用自己的工作区日志。 */
+  skipAudit?: boolean
 }
 
 interface ProviderMessage { content?: unknown }
@@ -598,14 +600,14 @@ async function requestCompletion(
       throw new AiError('该 AI 功能已停用，可在“AI 数据说明”中重新开启', 422, 'task_disabled')
     }
     const response = await requestCompletionRaw(messages, options)
-    const aiRunId = writeAiRun({ task, model, promptHash, durationMs: Date.now() - started, status: 'succeeded', result: response })
-    const auditCallId = writeAiCallRecord({
+    const aiRunId = options.skipAudit ? null : writeAiRun({ task, model, promptHash, durationMs: Date.now() - started, status: 'succeeded', result: response })
+    const auditCallId = options.skipAudit ? null : writeAiCallRecord({
       aiRunId, retryOfCallId: options.audit?.retryOfCallId, task, stage, attempt, model, promptHash,
       messages, options, result: response, status: 'succeeded', durationMs: Date.now() - started
     })
     return { ...response, auditCallId: auditCallId ?? undefined }
   } catch (error) {
-    const aiRunId = writeAiRun({
+    const aiRunId = options.skipAudit ? null : writeAiRun({
       task,
       model,
       promptHash,
@@ -613,7 +615,7 @@ async function requestCompletion(
       status: 'failed',
       errorType: error instanceof AiError ? error.kind : 'unexpected'
     })
-    writeAiCallRecord({
+    if (!options.skipAudit) writeAiCallRecord({
       aiRunId, retryOfCallId: options.audit?.retryOfCallId, task, stage, attempt, model, promptHash,
       messages, options, status: 'provider_failed', error: error as Error, durationMs: Date.now() - started
     })

@@ -13,3 +13,5 @@ export const APPLICATION_MATERIALS_DIR = path.join(DATA_DIR, 'application_materi
 /** 云端工作区文件。该目录不被 Nginx 作为静态资源暴露，只能经鉴权接口读取。 */
 export const WORKSPACE_FILES_DIR = path.join(DATA_DIR, 'workspace_files')
 export const WORKSPACE_RESUMES_DIR = path.join(WORKSPACE_FILES_DIR, 'resumes')
+/** 面经截图也属于用户私有材料，不能继续放在旧的全局 knowledge_images 目录。 */
+export const WORKSPACE_KNOWLEDGE_IMAGES_DIR = path.join(WORKSPACE_FILES_DIR, 'knowledge_images')

@@ -144,6 +144,71 @@ export const resumeTexts = pgTable('resume_texts', {
   index('resume_texts_workspace_status_idx').on(table.workspaceId, table.status)
 ])
 
+/**
+ * 知识库的面经源、题目、截图和答案版本均按工作区隔离。
+ * owner 仍保留“我的面试 / 他人面经”的学习语义，但不再表示跨账号可见性。
+ */
+export const knowledgeSources = pgTable('knowledge_sources', {
+  id: serial('id').primaryKey(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  owner: varchar('owner', { length: 16 }).notNull().default('others'),
+  company: text('company').notNull(),
+  position: text('position'),
+  round: varchar('round', { length: 40 }),
+  sourceType: varchar('source_type', { length: 16 }).notNull().default('manual'),
+  note: text('note'),
+  applicationId: integer('application_id'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+}, table => [
+  index('knowledge_sources_workspace_created_idx').on(table.workspaceId, table.createdAt),
+  index('knowledge_sources_workspace_company_idx').on(table.workspaceId, table.company)
+])
+
+export const knowledgeItems = pgTable('knowledge_items', {
+  id: serial('id').primaryKey(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  sourceId: integer('source_id').references(() => knowledgeSources.id, { onDelete: 'cascade' }),
+  question: text('question').notNull(),
+  answer: text('answer'),
+  category: varchar('category', { length: 32 }).notNull().default('其他'),
+  subCategory: varchar('sub_category', { length: 100 }),
+  mastery: integer('mastery').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+}, table => [
+  index('knowledge_items_workspace_updated_idx').on(table.workspaceId, table.updatedAt),
+  index('knowledge_items_workspace_source_idx').on(table.workspaceId, table.sourceId),
+  index('knowledge_items_workspace_category_idx').on(table.workspaceId, table.category),
+  index('knowledge_items_workspace_mastery_idx').on(table.workspaceId, table.mastery)
+])
+
+export const knowledgeImages = pgTable('knowledge_images', {
+  id: serial('id').primaryKey(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  sourceId: integer('source_id').notNull().references(() => knowledgeSources.id, { onDelete: 'cascade' }),
+  filename: text('filename').notNull(),
+  storedName: varchar('stored_name', { length: 160 }).notNull(),
+  inferenceStoredName: varchar('inference_stored_name', { length: 160 }),
+  inferenceMime: varchar('inference_mime', { length: 80 }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+}, table => [
+  uniqueIndex('knowledge_images_workspace_stored_name_unique').on(table.workspaceId, table.storedName),
+  index('knowledge_images_workspace_source_idx').on(table.workspaceId, table.sourceId)
+])
+
+export const knowledgeAnswerVersions = pgTable('knowledge_answer_versions', {
+  id: serial('id').primaryKey(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  knowledgeItemId: integer('knowledge_item_id').notNull().references(() => knowledgeItems.id, { onDelete: 'cascade' }),
+  answer: text('answer').notNull(),
+  reason: varchar('reason', { length: 40 }).notNull(),
+  model: varchar('model', { length: 200 }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+}, table => [
+  index('knowledge_answer_versions_workspace_item_idx').on(table.workspaceId, table.knowledgeItemId, table.id)
+])
+
 export const applicationEvents = pgTable('application_events', {
   id: serial('id').primaryKey(),
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),

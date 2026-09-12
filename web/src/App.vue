@@ -35,7 +35,8 @@ const workspace = computed<'track' | 'learn'>(() => (route.path.startsWith('/lea
 function onWorkspaceChange(ws: string | number | boolean): void {
   const target = ws === 'learn' ? 'learn' : 'track'
   localStorage.setItem('workspace', target)
-  router.push(target === 'learn' ? '/learn/reviews' : '/track/kanban')
+  // 普通用户的学习区已先开放知识库；录音复盘仍依赖下一批工作区迁移。
+  router.push(target === 'learn' ? (authState.user?.isAdmin ? '/learn/reviews' : '/learn/knowledge') : '/track/kanban')
 }
 
 function onMoreCommand(command: string | number | object): void {
@@ -117,7 +118,6 @@ watch(() => authState.user?.userId, userId => {
             投递
           </button>
           <button
-            v-if="authState.user.isAdmin"
             class="ws-pill"
             :class="{ active: workspace === 'learn' }"
             role="tab"
@@ -133,8 +133,8 @@ watch(() => authState.user?.userId, userId => {
             <router-link to="/track/list" class="nav-link" :class="{ active: route.path === '/track/list' }">列表</router-link>
             <router-link to="/track/stats" class="nav-link" :class="{ active: route.path === '/track/stats' }">统计</router-link>
           </template>
-          <template v-else-if="authState.user.isAdmin">
-            <router-link to="/learn/reviews" class="nav-link" :class="{ active: route.path === '/learn/reviews' }">复盘</router-link>
+          <template v-else>
+            <router-link v-if="authState.user.isAdmin" to="/learn/reviews" class="nav-link" :class="{ active: route.path === '/learn/reviews' }">复盘</router-link>
             <router-link to="/learn/knowledge" class="nav-link" :class="{ active: route.path.startsWith('/learn/knowledge') }">学习</router-link>
           </template>
         </nav>
@@ -161,7 +161,7 @@ watch(() => authState.user?.userId, userId => {
             </template>
           </el-dropdown>
           <el-button v-if="workspace === 'track'" class="primary-action" type="primary" @click="openCreateForm()">新增投递</el-button>
-          <el-button v-else-if="authState.user.isAdmin" class="primary-action" type="primary" @click="openKnowledgeIngest">录入面经</el-button>
+          <el-button v-else class="primary-action" type="primary" @click="openKnowledgeIngest">录入面经</el-button>
         </div>
       </div>
       <CountdownBar v-if="workspace === 'track'" :items="upcoming" @select="openUpcoming" />
@@ -169,7 +169,7 @@ watch(() => authState.user?.userId, userId => {
 
     <main class="main" :class="{ 'main-learn': workspace === 'learn' }">
       <div class="main-content">
-        <router-view v-if="workspace === 'track' || authState.user.isAdmin" />
+        <router-view v-if="workspace === 'track' || route.path.startsWith('/learn/knowledge') || authState.user.isAdmin" />
         <section v-else class="module-migration-note">
           <p class="page-kicker">WORKSPACE MIGRATION</p>
           <h2>学习与 AI 工具正在迁移</h2>
