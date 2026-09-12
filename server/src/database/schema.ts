@@ -95,6 +95,7 @@ export const applications = pgTable('applications', {
   appliedTime: varchar('applied_time', { length: 8 }),
   channel: text('channel'),
   location: text('location'),
+  resumeId: integer('resume_id'),
   jdLink: text('jd_link'),
   applicationLink: text('application_link'),
   jdText: text('jd_text'),
@@ -109,6 +110,38 @@ export const applications = pgTable('applications', {
   index('applications_workspace_updated_idx').on(table.workspaceId, table.updatedAt),
   index('applications_workspace_status_idx').on(table.workspaceId, table.status),
   index('applications_workspace_company_idx').on(table.workspaceId, table.company)
+])
+
+/** 原始简历文件仍在服务器私有磁盘；数据库只保存文件名和所属工作区。 */
+export const resumes = pgTable('resumes', {
+  id: serial('id').primaryKey(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  filename: text('filename').notNull(),
+  storedName: varchar('stored_name', { length: 160 }).notNull(),
+  size: integer('size').notNull(),
+  note: varchar('note', { length: 80 }),
+  uploadedAt: timestamp('uploaded_at', { withTimezone: true }).notNull().defaultNow()
+}, table => [
+  uniqueIndex('resumes_workspace_stored_name_unique').on(table.workspaceId, table.storedName),
+  index('resumes_workspace_uploaded_idx').on(table.workspaceId, table.uploadedAt)
+])
+
+export const resumeTexts = pgTable('resume_texts', {
+  resumeId: integer('resume_id').primaryKey().references(() => resumes.id, { onDelete: 'cascade' }),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  status: varchar('status', { length: 24 }).notNull().default('pending'),
+  textContent: text('text_content'),
+  contentHash: varchar('content_hash', { length: 64 }),
+  errorMessage: text('error_message'),
+  extractionMethod: varchar('extraction_method', { length: 24 }),
+  model: varchar('model', { length: 200 }),
+  pageCount: integer('page_count'),
+  pagesCompleted: integer('pages_completed').notNull().default(0),
+  startedAt: timestamp('started_at', { withTimezone: true }),
+  extractedAt: timestamp('extracted_at', { withTimezone: true }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+}, table => [
+  index('resume_texts_workspace_status_idx').on(table.workspaceId, table.status)
 ])
 
 export const applicationEvents = pgTable('application_events', {

@@ -6,7 +6,7 @@ import { applicationsRouter } from './routes/applications.js'
 import { eventsRouter } from './routes/events.js'
 import { interviewsRouter } from './routes/interviews.js'
 import { resumesRouter } from './routes/resumes.js'
-import { recoverInterruptedResumeExtractions } from './resume-text.js'
+import { recoverInterruptedCloudResumeExtractions } from './cloud-resume-text.js'
 import { statsRouter } from './routes/stats.js'
 import { knowledgeRouter } from './routes/knowledge.js'
 import { knowledgeAiRouter } from './routes/knowledge-ai.js'
@@ -46,8 +46,6 @@ const app = express()
 app.set('trust proxy', 1)
 const recoveredRecordings = recoverInterruptedRecordings()
 if (recoveredRecordings) console.log(`[recordings] 已恢复 ${recoveredRecordings} 个中断任务，可在页面点击重试`)
-const recoveredResumes = recoverInterruptedResumeExtractions()
-if (recoveredResumes) console.log(`[resumes] 已标记 ${recoveredResumes} 个中断的简历提取，可在简历选择器中重试`)
 app.use(express.json({ limit: '2mb' }))
 app.use('/api', healthRouter)
 app.use('/api/auth', authRouter)
@@ -81,6 +79,7 @@ app.use('/api', statsRouter)
 app.use('/api', interviewsRouter)
 app.use('/api', eventsRouter)
 app.use('/api/applications', applicationsRouter)
+app.use('/api/resumes', resumesRouter)
 
 // 其余模块仍使用共享 SQLite 数据，继续限制为管理员，直到逐项迁移完成。
 app.use('/api', requireLegacyDataAccess)
@@ -89,7 +88,6 @@ app.use('/api', observabilityRouter)
 app.use('/api/feishu', feishuRouter)
 app.use('/api', projectsRouter)
 app.use('/api', codeReadingRouter)
-app.use('/api/resumes', resumesRouter)
 app.use('/api/application-imports', applicationImportsRouter)
 app.use('/api/knowledge', knowledgeRouter)
 app.use('/api', knowledgeAiRouter)
@@ -123,6 +121,9 @@ if (existsSync(publicDir)) {
 // 仅允许本机浏览器访问，不向局域网开放。
 const server = app.listen(PORT, '127.0.0.1', () => {
   console.log(`job-tracer 已启动: http://localhost:${PORT}`)
+  void recoverInterruptedCloudResumeExtractions().then(count => {
+    if (count) console.log(`[resumes] 已标记 ${count} 个中断的简历提取，可在简历选择器中重试`)
+  }).catch(error => console.warn('[resumes] 恢复中断提取状态失败:', (error as Error).message))
   recoverInterruptedMailAnalyses()
   const interruptedCodeSessions = recoverInterruptedCodeReadingSessions()
   if (interruptedCodeSessions) console.log(`[code-reading] 已标记 ${interruptedCodeSessions} 个中断调查，可在项目档案中点击重试`)

@@ -24,7 +24,7 @@ interface ApplicationRow {
 const columns = (table = '') => {
   const p = table ? `${table}.` : ''
   return `${p}id, ${p}company, ${p}position, ${p}status, ${p}applied_at, ${p}applied_time, ${p}channel, ${p}location,
-    NULL::integer AS resume_id, ${p}jd_link, ${p}application_link, ${p}jd_text, ${p}contact_name, ${p}contact_info,
+    ${p}resume_id, ${p}jd_link, ${p}application_link, ${p}jd_text, ${p}contact_name, ${p}contact_info,
     ${p}notes, ${p}rejected_at, ${p}reject_type, ${p}created_at, ${p}updated_at`
 }
 
@@ -32,12 +32,12 @@ function isStatus(value: unknown): value is Status {
   return typeof value === 'string' && (STATUS_ORDER as readonly string[]).includes(value)
 }
 
-function validate(body: AppBody): { error?: string; values?: Record<string, string | null> & { status: Status } } {
+function validate(body: AppBody): { error?: string; values?: Record<string, string | number | null> & { status: Status } } {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return { error: '表单格式不正确' }
   for (const key of ['company', 'position', 'status', 'applied_at', 'applied_time', 'channel', 'location', 'jd_link', 'application_link', 'jd_text', 'contact_name', 'contact_info', 'notes'] as const) {
     if (body[key] != null && typeof body[key] !== 'string') return { error: `${key} 必须为文本` }
   }
-  if (body.resume_id != null) return { error: '简历关联正在迁移，请暂时先不选择简历' }
+  if (body.resume_id != null && (!Number.isSafeInteger(body.resume_id) || body.resume_id <= 0)) return { error: '简历编号无效' }
   const company = (body.company ?? '').trim()
   const position = (body.position ?? '').trim()
   if (!company) return { error: '公司不能为空' }
@@ -57,7 +57,7 @@ function validate(body: AppBody): { error?: string; values?: Record<string, stri
   }
   return { values: {
     company, position, status, applied_at: appliedAt, applied_time: appliedTime,
-    channel: body.channel?.trim() || null, location: body.location?.trim() || null,
+    channel: body.channel?.trim() || null, location: body.location?.trim() || null, resume_id: body.resume_id ?? null,
     jd_link: body.jd_link?.trim() || null, application_link: body.application_link?.trim() || null,
     jd_text: body.jd_text || null, contact_name: body.contact_name?.trim() || null,
     contact_info: body.contact_info?.trim() || null, notes: body.notes || null
@@ -74,6 +74,12 @@ async function addStatusEvent(workspaceId: string, appId: number, from: Status, 
     `INSERT INTO application_events (workspace_id, application_id, type, event_date, content) VALUES ($1,$2,'status',$3,$4)`,
     [workspaceId, appId, date, `状态：${STATUS_LABELS[from]} -> ${STATUS_LABELS[to]}`]
   )
+}
+
+async function assertResumeBelongsToWorkspace(workspaceId: string, resumeId: number | null): Promise<void> {
+  if (resumeId == null) return
+  const rows = await getPostgresSql().unsafe('SELECT id FROM resumes WHERE workspace_id=$1 AND id=$2', [workspaceId, resumeId])
+  if (!rows.length) throw new Error('选择的简历不存在或不属于当前工作区')
 }
 
 applicationsRouter.get('/', async (req: Request, res: Response) => {
@@ -119,10 +125,11 @@ applicationsRouter.post('/', async (req: Request, res: Response) => {
   if (req.body?.import_id) return res.status(409).json({ message: '招聘信息智能录入正在迁移，请先使用表单新增投递' })
   const { error, values } = validate(req.body)
   if (error || !values) return res.status(422).json({ message: error })
+  await assertResumeBelongsToWorkspace(workspaceId, values.resume_id as number | null)
   const rows = await getPostgresSql().unsafe(
-    `INSERT INTO applications (workspace_id,company,position,status,applied_at,applied_time,channel,location,jd_link,application_link,jd_text,contact_name,contact_info,notes)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING ${columns()}`,
-    [workspaceId, values.company, values.position, values.status, values.applied_at, values.applied_time, values.channel, values.location, values.jd_link, values.application_link, values.jd_text, values.contact_name, values.contact_info, values.notes]
+    `INSERT INTO applications (workspace_id,company,position,status,applied_at,applied_time,channel,location,resume_id,jd_link,application_link,jd_text,contact_name,contact_info,notes)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING ${columns()}`,
+    [workspaceId, values.company, values.position, values.status, values.applied_at, values.applied_time, values.channel, values.location, values.resume_id, values.jd_link, values.application_link, values.jd_text, values.contact_name, values.contact_info, values.notes]
   ) as unknown as ApplicationRow[]
   const app = rows[0]
   if (app.status !== 'unsent') await addStatusEvent(workspaceId, app.id, 'unsent', app.status, app.applied_at!)
@@ -136,10 +143,11 @@ applicationsRouter.put('/:id', async (req: Request, res: Response) => {
   if (!previous) return res.status(404).json({ message: '记录不存在' })
   const { error, values } = validate({ ...req.body, applied_time: req.body?.applied_time === undefined ? previous.applied_time : req.body.applied_time })
   if (error || !values) return res.status(422).json({ message: error })
+  await assertResumeBelongsToWorkspace(workspaceId, values.resume_id as number | null)
   const rows = await getPostgresSql().unsafe(
-    `UPDATE applications SET company=$1,position=$2,status=$3,applied_at=$4,applied_time=$5,channel=$6,location=$7,jd_link=$8,application_link=$9,jd_text=$10,contact_name=$11,contact_info=$12,notes=$13,updated_at=now()
-     WHERE workspace_id=$14 AND id=$15 RETURNING ${columns()}`,
-    [values.company, values.position, values.status, values.applied_at, values.applied_time, values.channel, values.location, values.jd_link, values.application_link, values.jd_text, values.contact_name, values.contact_info, values.notes, workspaceId, id]
+    `UPDATE applications SET company=$1,position=$2,status=$3,applied_at=$4,applied_time=$5,channel=$6,location=$7,resume_id=$8,jd_link=$9,application_link=$10,jd_text=$11,contact_name=$12,contact_info=$13,notes=$14,updated_at=now()
+     WHERE workspace_id=$15 AND id=$16 RETURNING ${columns()}`,
+    [values.company, values.position, values.status, values.applied_at, values.applied_time, values.channel, values.location, values.resume_id, values.jd_link, values.application_link, values.jd_text, values.contact_name, values.contact_info, values.notes, workspaceId, id]
   ) as unknown as ApplicationRow[]
   const app = rows[0]
   if (app.status !== previous.status) await addStatusEvent(workspaceId, id, previous.status, app.status, previous.status === 'unsent' ? app.applied_at! : localDate())

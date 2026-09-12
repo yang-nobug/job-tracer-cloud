@@ -1,127 +1,111 @@
 import { Router } from 'express'
-import multer from 'multer'
-import path from 'node:path'
-import { existsSync, unlinkSync } from 'node:fs'
 import type { Request, Response } from 'express'
-import { db, UPLOADS_DIR, now } from '../db.js'
-import { requestResumeTextExtraction, listResumesWithText, resumeWithText } from '../resume-text.js'
+import multer from 'multer'
+import { existsSync, mkdirSync, unlinkSync } from 'node:fs'
+import path from 'node:path'
+import { randomUUID } from 'node:crypto'
+import { getPostgresSql } from '../database/client.js'
+import { parsePositiveId, requireWorkspaceId } from '../auth/workspace.js'
+import { WORKSPACE_RESUMES_DIR } from '../data-paths.js'
+import { cloudResumePath, cloudResumeWithText, listCloudResumes, requestCloudResumeExtraction } from '../cloud-resume-text.js'
 
 export const resumesRouter = Router()
+const allowedExtensions = ['.pdf', '.doc', '.docx']
+mkdirSync(WORKSPACE_RESUMES_DIR, { recursive: true })
 
-const ALLOWED_EXT = ['.pdf', '.doc', '.docx']
-
-// multer 把 multipart 文件名按 latin1 解码，中文会变乱码：能无损还原成 UTF-8 时采用还原结果
-function fixOriginalName(name: string): string {
-  const bytes = Buffer.from(name, 'latin1')
-  const decoded = bytes.toString('utf8')
+function fixedFilename(name: string): string {
+  const bytes = Buffer.from(name, 'latin1'); const decoded = bytes.toString('utf8')
   return decoded !== name && Buffer.from(decoded, 'utf8').equals(bytes) ? decoded : name
 }
 
 const upload = multer({
   storage: multer.diskStorage({
-    destination: UPLOADS_DIR,
-    filename: (_req, file, cb) => {
-      const ext = path.extname(file.originalname).toLowerCase()
-      const safe = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`
-      cb(null, safe)
-    }
+    destination: (req, _file, callback) => {
+      const workspaceId = req.auth?.workspaceId
+      if (!workspaceId) return callback(new Error('当前账号没有可用工作区'), '')
+      const directory = path.join(WORKSPACE_RESUMES_DIR, workspaceId)
+      mkdirSync(directory, { recursive: true })
+      callback(null, directory)
+    },
+    filename: (_req, file, callback) => callback(null, `${randomUUID()}${path.extname(file.originalname).toLowerCase()}`)
   }),
   limits: { fileSize: 20 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase()
-    if (ALLOWED_EXT.includes(ext)) cb(null, true)
-    else cb(new Error('仅支持 PDF / Word 文件'))
+  fileFilter: (_req, file, callback) => {
+    const extension = path.extname(file.originalname).toLowerCase()
+    callback(null, allowedExtensions.includes(extension))
   }
 })
 
-resumesRouter.get('/', (_req: Request, res: Response) => {
-  res.json(listResumesWithText())
+async function ownedResume(workspaceId: string, id: number): Promise<{ id: number; filename: string; stored_name: string } | null> {
+  const rows = await getPostgresSql().unsafe('SELECT id,filename,stored_name FROM resumes WHERE workspace_id=$1 AND id=$2', [workspaceId, id]) as Array<{ id: number; filename: string; stored_name: string }>
+  return rows[0] ?? null
+}
+
+resumesRouter.get('/', async (req: Request, res: Response) => {
+  res.json(await listCloudResumes(requireWorkspaceId(req)))
 })
 
-resumesRouter.post('/', upload.single('file'), (req: Request, res: Response) => {
-  if (!req.file) {
-    res.status(422).json({ message: '请选择文件' })
-    return
+resumesRouter.post('/', upload.single('file'), async (req: Request, res: Response) => {
+  const workspaceId = requireWorkspaceId(req)
+  if (!req.file) return res.status(422).json({ message: '请选择 PDF / Word 文件' })
+  const extension = path.extname(req.file.originalname).toLowerCase()
+  if (!allowedExtensions.includes(extension)) {
+    try { unlinkSync(req.file.path) } catch { /* 无需覆盖原始错误 */ }
+    return res.status(422).json({ message: '仅支持 PDF / Word 文件' })
   }
-  const result = db
-    .prepare('INSERT INTO resumes (filename, stored_name, size, note, uploaded_at) VALUES (?, ?, ?, ?, ?)')
-    .run(
-      fixOriginalName(req.file.originalname),
-      req.file.filename,
-      req.file.size,
-      req.body?.note?.trim() || null,
-      now()
-    )
-  // 简历提取始终异步执行：PDF 渲染后会交由视觉模型识别，不能阻塞 Node 服务。
-  res.status(202).json(requestResumeTextExtraction(Number(result.lastInsertRowid)))
+  try {
+    const rows = await getPostgresSql().unsafe(
+      `INSERT INTO resumes (workspace_id,filename,stored_name,size,note) VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+      [workspaceId, fixedFilename(req.file.originalname), req.file.filename, req.file.size, typeof req.body?.note === 'string' ? req.body.note.trim().slice(0, 80) || null : null]
+    ) as Array<{ id: number }>
+    res.status(202).json(await requestCloudResumeExtraction(workspaceId, rows[0].id))
+  } catch (error) {
+    try { unlinkSync(req.file.path) } catch { /* 无需覆盖数据库错误 */ }
+    throw error
+  }
 })
 
-resumesRouter.post('/:id/extract', (req: Request, res: Response) => {
-  const id = Number(req.params.id)
-  if (!Number.isInteger(id) || id <= 0) { res.status(422).json({ message: '简历编号无效' }); return }
-  try { res.status(202).json(requestResumeTextExtraction(id)) }
-  catch (error) { res.status(500).json({ message: (error as Error).message || '简历提取失败' }) }
+resumesRouter.post('/:id/extract', async (req: Request, res: Response) => {
+  const id = parsePositiveId(req.params.id, '简历编号')
+  if (!id) return res.status(422).json({ message: '简历编号无效' })
+  try { res.status(202).json(await requestCloudResumeExtraction(requireWorkspaceId(req), id)) }
+  catch (error) { res.status(404).json({ message: (error as Error).message || '简历不存在' }) }
 })
 
-// 文件流（浏览器在线预览 PDF / 下载 Word）
-resumesRouter.get('/:id/file', (req: Request, res: Response) => {
-  const resume = db.prepare('SELECT * FROM resumes WHERE id = ?').get(req.params.id) as
-    | { stored_name: string; filename: string }
-    | undefined
-  if (!resume) {
-    res.status(404).json({ message: '简历不存在' })
-    return
-  }
-  const filePath = path.join(UPLOADS_DIR, resume.stored_name)
-  if (!existsSync(filePath)) {
-    res.status(404).json({ message: '文件已丢失' })
-    return
-  }
-  const ext = path.extname(resume.stored_name).toLowerCase()
-  const contentType = ext === '.pdf' ? 'application/pdf' : 'application/octet-stream'
-  res.setHeader('Content-Type', contentType)
+resumesRouter.get('/:id/file', async (req: Request, res: Response) => {
+  const workspaceId = requireWorkspaceId(req); const id = parsePositiveId(req.params.id, '简历编号')
+  if (!id) return res.status(404).json({ message: '简历不存在' })
+  const resume = await ownedResume(workspaceId, id)
+  if (!resume) return res.status(404).json({ message: '简历不存在' })
+  const file = cloudResumePath(workspaceId, resume.stored_name)
+  if (!existsSync(file)) return res.status(404).json({ message: '简历文件已丢失' })
+  res.setHeader('Content-Type', path.extname(resume.stored_name).toLowerCase() === '.pdf' ? 'application/pdf' : 'application/octet-stream')
   res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(resume.filename)}`)
-  res.sendFile(filePath)
+  res.sendFile(file)
 })
 
-// 提取结果仅保留在本地 SQLite；用户可在简历库核对后再用于 AI 面试准备。
-resumesRouter.get('/:id/text', (req: Request, res: Response) => {
-  const id = Number(req.params.id)
-  if (!Number.isInteger(id) || id <= 0) { res.status(422).json({ message: '简历编号无效' }); return }
-  const resume = db.prepare('SELECT id, filename FROM resumes WHERE id = ?').get(id) as
-    | { id: number; filename: string }
-    | undefined
-  if (!resume) { res.status(404).json({ message: '简历不存在' }); return }
-  const extracted = db.prepare(`SELECT status, text_content, extraction_method, model, page_count, extracted_at
-    FROM resume_texts WHERE resume_id = ?`).get(id) as
-    | { status: string; text_content: string | null; extraction_method: string | null; model: string | null; page_count: number | null; extracted_at: string | null }
-    | undefined
-  if (extracted?.status !== 'completed' || !extracted.text_content) {
-    res.status(409).json({ message: '简历文字尚未提取完成' })
-    return
-  }
-  res.json({
-    resume_id: resume.id,
-    filename: resume.filename,
-    text: extracted.text_content,
-    extraction_method: extracted.extraction_method,
-    extraction_model: extracted.model,
-    page_count: extracted.page_count,
-    extracted_at: extracted.extracted_at
+resumesRouter.get('/:id/text', async (req: Request, res: Response) => {
+  const workspaceId = requireWorkspaceId(req); const id = parsePositiveId(req.params.id, '简历编号')
+  if (!id || !await ownedResume(workspaceId, id)) return res.status(404).json({ message: '简历不存在' })
+  const rows = await getPostgresSql().unsafe(
+    `SELECT r.id AS resume_id,r.filename,t.text_content AS text,t.extraction_method,t.model AS extraction_model,t.page_count,t.extracted_at
+     FROM resumes r JOIN resume_texts t ON t.resume_id=r.id AND t.workspace_id=r.workspace_id
+     WHERE r.workspace_id=$1 AND r.id=$2 AND t.status='completed' AND length(COALESCE(t.text_content,''))>0`, [workspaceId, id]
+  )
+  if (!rows.length) return res.status(409).json({ message: '简历文字尚未提取完成' })
+  res.json(rows[0])
+})
+
+resumesRouter.delete('/:id', async (req: Request, res: Response) => {
+  const workspaceId = requireWorkspaceId(req); const id = parsePositiveId(req.params.id, '简历编号')
+  if (!id) return res.status(404).json({ message: '简历不存在' })
+  const resume = await ownedResume(workspaceId, id)
+  if (!resume) return res.status(404).json({ message: '简历不存在' })
+  const sql = getPostgresSql()
+  await sql.begin(async transaction => {
+    await transaction.unsafe('UPDATE applications SET resume_id=NULL,updated_at=now() WHERE workspace_id=$1 AND resume_id=$2', [workspaceId, id])
+    await transaction.unsafe('DELETE FROM resumes WHERE workspace_id=$1 AND id=$2', [workspaceId, id])
   })
-})
-
-resumesRouter.delete('/:id', (req: Request, res: Response) => {
-  const resume = db.prepare('SELECT * FROM resumes WHERE id = ?').get(req.params.id) as
-    | { id: number; stored_name: string }
-    | undefined
-  if (!resume) {
-    res.status(404).json({ message: '简历不存在' })
-    return
-  }
-  const filePath = path.join(UPLOADS_DIR, resume.stored_name)
-  if (existsSync(filePath)) unlinkSync(filePath)
-  db.prepare('UPDATE applications SET resume_id = NULL WHERE resume_id = ?').run(resume.id)
-  db.prepare('DELETE FROM resumes WHERE id = ?').run(resume.id)
+  try { unlinkSync(cloudResumePath(workspaceId, resume.stored_name)) } catch { /* 文件已丢失不影响数据库删除 */ }
   res.json({ ok: true })
 })

@@ -10,3 +10,6 @@ export const REVIEWS_DIR = path.join(DATA_DIR, 'reviews')
 export const KNOWLEDGE_IMAGES_DIR = path.join(DATA_DIR, 'knowledge_images')
 export const RECORDINGS_DIR = path.join(DATA_DIR, 'recordings')
 export const APPLICATION_MATERIALS_DIR = path.join(DATA_DIR, 'application_materials')
+/** 云端工作区文件。该目录不被 Nginx 作为静态资源暴露，只能经鉴权接口读取。 */
+export const WORKSPACE_FILES_DIR = path.join(DATA_DIR, 'workspace_files')
+export const WORKSPACE_RESUMES_DIR = path.join(WORKSPACE_FILES_DIR, 'resumes')
