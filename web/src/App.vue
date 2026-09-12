@@ -149,7 +149,7 @@ watch(() => authState.user?.userId, userId => {
             </template>
           </el-dropdown>
           <el-button class="utility-button" text @click="store.resumeLibraryOpen = true">简历</el-button>
-          <el-button v-if="authState.user.isAdmin" class="utility-button" text @click="mailSettingsOpen = true">日程</el-button>
+          <el-button class="utility-button" text @click="mailSettingsOpen = true">日程</el-button>
           <el-dropdown v-if="authState.user.isAdmin" trigger="click" @command="onMoreCommand">
             <el-button class="utility-button" text>更多 <span class="more-caret">⌄</span></el-button>
             <template #dropdown>

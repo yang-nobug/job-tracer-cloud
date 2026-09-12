@@ -14,7 +14,12 @@ const defaultKeyDir = process.env.LOCALAPPDATA?.trim()
   : path.join(os.homedir(), '.job-tracer')
 const KEY_DIR = configuredKeyDir ? path.resolve(configuredKeyDir) : defaultKeyDir
 const MASTER_KEY_PATH = path.join(KEY_DIR, 'mail-master.key')
-function credentialRef(provider: MailProvider): string {
+function credentialRef(provider: MailProvider, scope?: string): string {
+  if (scope) {
+    const normalized = scope.replace(/[^a-zA-Z0-9_-]/g, '')
+    if (!normalized) throw new Error('邮箱凭据作用域无效')
+    return `cloud-${normalized}-${provider}-mail-v1`
+  }
   // 保持 QQ 的旧引用不变，已有账号无需重新填写授权码。
   return `${provider}-mail-v1`
 }
@@ -52,8 +57,10 @@ function loadOrCreateMasterKey(): Buffer {
   return key
 }
 
-function credentialAad(provider: MailProvider, email: string): Buffer {
-  return Buffer.from(`job-tracer:mail:${provider}:${email.trim().toLowerCase()}`, 'utf8')
+function credentialAad(provider: MailProvider, email: string, scope?: string): Buffer {
+  // 未传 scope 时保持旧版 AAD，已有本地邮箱凭据无需重新填写授权码。
+  const prefix = scope ? `job-tracer:mail:${scope}:${provider}` : `job-tracer:mail:${provider}`
+  return Buffer.from(`${prefix}:${email.trim().toLowerCase()}`, 'utf8')
 }
 
 export function encryptSecret(secret: string, key: Buffer, aad: Buffer): EncryptedSecret {
@@ -82,12 +89,12 @@ export function decryptSecret(payload: EncryptedSecret, key: Buffer, aad: Buffer
   ]).toString('utf8')
 }
 
-export function storeMailAuthorizationCode(provider: MailProvider, email: string, authorizationCode: string): string {
+export function storeMailAuthorizationCode(provider: MailProvider, email: string, authorizationCode: string, scope?: string): string {
   ensureSecretDir()
   const key = loadOrCreateMasterKey()
-  const ref = credentialRef(provider)
+  const ref = credentialRef(provider, scope)
   const filePath = credentialPath(ref)
-  const payload = encryptSecret(authorizationCode, key, credentialAad(provider, email))
+  const payload = encryptSecret(authorizationCode, key, credentialAad(provider, email, scope))
   const tempPath = `${filePath}.${process.pid}.tmp`
   writeFileSync(tempPath, JSON.stringify(payload), { encoding: 'utf8', mode: 0o600 })
   renameSync(tempPath, filePath)
@@ -95,28 +102,28 @@ export function storeMailAuthorizationCode(provider: MailProvider, email: string
   return ref
 }
 
-export function loadMailAuthorizationCode(provider: MailProvider, storedRef: string, email: string): string {
-  const expectedRef = credentialRef(provider)
+export function loadMailAuthorizationCode(provider: MailProvider, storedRef: string, email: string, scope?: string): string {
+  const expectedRef = credentialRef(provider, scope)
   const filePath = credentialPath(expectedRef)
   if (storedRef !== expectedRef || !existsSync(filePath)) {
     throw new Error('本机没有找到邮箱授权码，请重新连接')
   }
   try {
     const payload = JSON.parse(readFileSync(filePath, 'utf8')) as EncryptedSecret
-    return decryptSecret(payload, loadOrCreateMasterKey(), credentialAad(provider, email))
+    return decryptSecret(payload, loadOrCreateMasterKey(), credentialAad(provider, email, scope))
   } catch (error) {
     if ((error as Error).message.includes('本机没有找到')) throw error
     throw new Error('本机邮箱凭据无法解密，请删除连接后重新配置')
   }
 }
 
-export function hasMailAuthorizationCode(provider: MailProvider, storedRef: string): boolean {
-  return storedRef === credentialRef(provider)
+export function hasMailAuthorizationCode(provider: MailProvider, storedRef: string, scope?: string): boolean {
+  return storedRef === credentialRef(provider, scope)
     && existsSync(credentialPath(storedRef))
     && existsSync(MASTER_KEY_PATH)
 }
 
-export function deleteMailAuthorizationCode(provider: MailProvider, storedRef: string): void {
-  if (storedRef !== credentialRef(provider)) return
+export function deleteMailAuthorizationCode(provider: MailProvider, storedRef: string, scope?: string): void {
+  if (storedRef !== credentialRef(provider, scope)) return
   rmSync(credentialPath(storedRef), { force: true })
 }

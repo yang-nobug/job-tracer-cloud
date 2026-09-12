@@ -188,6 +188,7 @@ interface ScanResponse {
 }
 
 interface MailAutomationSettings {
+  available?: boolean
   enabled: boolean
   runTime: string
   nextRunAt: string | null
@@ -675,7 +676,7 @@ watch(() => scheduleDraft.value.timeMode, timeMode => {
         </div>
       </section>
 
-      <details v-if="account && automationSettings" class="mail-automation-card" :open="automationSettings.enabled">
+      <details v-if="account && automationSettings && automationSettings.available !== false" class="mail-automation-card" :open="automationSettings.enabled">
         <summary class="automation-heading">
           <div>
             <h3>自动扫描</h3>

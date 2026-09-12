@@ -74,8 +74,20 @@ statsRouter.get('/upcoming', async (req: Request, res: Response) => {
      FROM interviews i JOIN applications a ON a.workspace_id=i.workspace_id AND a.id=i.application_id
      WHERE i.workspace_id=$1 AND i.done=false AND i.scheduled_at >= $2 ORDER BY i.scheduled_at ASC LIMIT 30`, [workspaceId, now]
   ) as Array<Record<string, unknown> & { id: number; round: string; scheduled_at: string }>
-  res.json(rows.map(row => ({
+  const interviews = rows.map(row => ({
     ...row, key: `interview:${row.id}`, kind: 'interview', title: row.round, event_type: 'interview', time_mode: 'fixed', due_at: row.scheduled_at,
     due_kind: 'scheduled', window_start_at: null, window_end_at: null, deadline_at: null, duration_minutes: null
-  })))
+  }))
+  // 邮箱 AI 复核后自动创建的招聘日程同样进入顶部提醒；没有关联投递时前端会打开日程页。
+  const schedules = await getPostgresSql().unsafe(
+    `SELECT id,application_id,title,event_type,time_mode,scheduled_at,window_start_at,window_end_at,deadline_at,duration_minutes
+     FROM workspace_recruitment_schedules WHERE workspace_id=$1 AND status='active'
+       AND COALESCE(scheduled_at,window_end_at,deadline_at) >= $2
+     ORDER BY COALESCE(scheduled_at,window_end_at,deadline_at) ASC LIMIT 30`, [workspaceId, now]
+  ) as Array<Record<string, unknown> & { id: number; title: string; event_type: string; time_mode: string }>
+  const mailSchedules = schedules.map(row => ({
+    ...row, key: `mail-schedule:${row.id}`, kind: 'schedule', due_at: row.scheduled_at ?? row.window_end_at ?? row.deadline_at,
+    due_kind: row.scheduled_at ? 'scheduled' : row.window_end_at ? 'window_end' : 'deadline'
+  }))
+  res.json([...interviews, ...mailSchedules].sort((left, right) => String(left.due_at).localeCompare(String(right.due_at))).slice(0, 30))
 })
