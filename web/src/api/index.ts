@@ -61,5 +61,17 @@ export const api = {
       if (!res.ok) throw new Error((body as { message?: string }).message || '上传失败')
       return body
     })
+  },
+
+  /** 上传本地 data 目录压缩包，导入到当前登录账号自己的工作区。 */
+  importLocalData: (archive: File) => {
+    const form = new FormData()
+    form.append('archive', archive)
+    form.append('replace_workspace', 'true')
+    return fetch(`${BASE}/local-data-import`, { method: 'POST', body: form, credentials: 'same-origin' }).then(async (res) => {
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error((body as { message?: string }).message || '导入失败')
+      return body as { ok: true; message: string; result: Record<string, number>; ignored: string[] }
+    })
   }
 }
