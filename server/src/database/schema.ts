@@ -209,6 +209,38 @@ export const knowledgeAnswerVersions = pgTable('knowledge_answer_versions', {
   index('knowledge_answer_versions_workspace_item_idx').on(table.workspaceId, table.knowledgeItemId, table.id)
 ])
 
+/** 招聘智能录入的可核对草稿。未保存的草稿会过期；原材料始终属于单一工作区。 */
+export const applicationImports = pgTable('application_imports', {
+  id: uuid('id').primaryKey(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  applicationId: integer('application_id'),
+  analysisJson: text('analysis_json'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull()
+}, table => [
+  index('application_imports_workspace_created_idx').on(table.workspaceId, table.createdAt),
+  index('application_imports_workspace_application_idx').on(table.workspaceId, table.applicationId)
+])
+
+export const applicationMaterials = pgTable('application_materials', {
+  // text_1 / image_1 只在同一份导入草稿内唯一，主键必须带上 importId。
+  id: varchar('id', { length: 40 }).notNull(),
+  importId: uuid('import_id').notNull().references(() => applicationImports.id, { onDelete: 'cascade' }),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  kind: varchar('kind', { length: 16 }).notNull(),
+  textContent: text('text_content'),
+  filename: text('filename'),
+  storedName: varchar('stored_name', { length: 160 }),
+  mime: varchar('mime', { length: 80 }),
+  capturedAt: varchar('captured_at', { length: 10 }),
+  inferenceStoredName: varchar('inference_stored_name', { length: 160 }),
+  inferenceMime: varchar('inference_mime', { length: 80 })
+}, table => [
+  primaryKey({ columns: [table.importId, table.id], name: 'application_materials_pkey' }),
+  index('application_materials_workspace_import_idx').on(table.workspaceId, table.importId),
+  uniqueIndex('application_materials_workspace_stored_name_unique').on(table.workspaceId, table.storedName)
+])
+
 export const applicationEvents = pgTable('application_events', {
   id: serial('id').primaryKey(),
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),

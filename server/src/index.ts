@@ -12,6 +12,8 @@ import { knowledgeRouter } from './routes/knowledge.js'
 import { knowledgeAiRouter } from './routes/knowledge-ai.js'
 import { cloudKnowledgeRouter } from './routes/cloud-knowledge.js'
 import { cloudKnowledgeAiRouter } from './routes/cloud-knowledge-ai.js'
+import { cloudAiRouter } from './routes/cloud-ai.js'
+import { cloudApplicationImportsRouter } from './routes/cloud-application-imports.js'
 import { recoverInterruptedRecordings, recordingsRouter } from './routes/recordings.js'
 import { tutorRouter } from './routes/tutor.js'
 import { aiRouter } from './routes/ai.js'
@@ -85,6 +87,8 @@ app.use('/api/resumes', resumesRouter)
 // 面经、题目和截图已迁入工作区 PostgreSQL；AI 拆题/答案生成也不会落到共享 SQLite。
 app.use('/api/knowledge', cloudKnowledgeRouter)
 app.use('/api', cloudKnowledgeAiRouter)
+app.use('/api', cloudAiRouter)
+app.use('/api/application-imports', cloudApplicationImportsRouter)
 
 // 其余模块仍使用共享 SQLite 数据，继续限制为管理员，直到逐项迁移完成。
 app.use('/api', requireLegacyDataAccess)

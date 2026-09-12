@@ -122,7 +122,13 @@ applicationsRouter.get('/:id', async (req: Request, res: Response) => {
 
 applicationsRouter.post('/', async (req: Request, res: Response) => {
   const workspaceId = requireWorkspaceId(req)
-  if (req.body?.import_id) return res.status(409).json({ message: '招聘信息智能录入正在迁移，请先使用表单新增投递' })
+  const importId = typeof req.body?.import_id === 'string' ? req.body.import_id : null
+  if (importId) {
+    if (req.body?.import_confirmed !== true && req.body?.import_manual !== true) return res.status(422).json({ message: '请先确认已核对智能录入结果' })
+    const rows = await getPostgresSql().unsafe(`SELECT id FROM application_imports
+      WHERE workspace_id=$1 AND id=$2 AND application_id IS NULL AND expires_at>now()`, [workspaceId, importId])
+    if (!rows.length) return res.status(422).json({ message: '招聘材料不存在、已过期或已被保存' })
+  }
   const { error, values } = validate(req.body)
   if (error || !values) return res.status(422).json({ message: error })
   await assertResumeBelongsToWorkspace(workspaceId, values.resume_id as number | null)
@@ -132,6 +138,7 @@ applicationsRouter.post('/', async (req: Request, res: Response) => {
     [workspaceId, values.company, values.position, values.status, values.applied_at, values.applied_time, values.channel, values.location, values.resume_id, values.jd_link, values.application_link, values.jd_text, values.contact_name, values.contact_info, values.notes]
   ) as unknown as ApplicationRow[]
   const app = rows[0]
+  if (importId) await getPostgresSql().unsafe('UPDATE application_imports SET application_id=$3 WHERE workspace_id=$1 AND id=$2 AND application_id IS NULL', [workspaceId, importId, app.id])
   if (app.status !== 'unsent') await addStatusEvent(workspaceId, app.id, 'unsent', app.status, app.applied_at!)
   res.status(201).json(app)
 })

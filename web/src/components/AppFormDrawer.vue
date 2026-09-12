@@ -307,7 +307,7 @@ const channels = computed(() => DEFAULT_CHANNELS)
     destroy-on-close
     @update:model-value="emit('update:modelValue', $event)"
   >
-    <div v-if="!editing && authState.user?.isAdmin" class="jd-parse-bar" @click="importDialogOpen = true">
+    <div v-if="!editing" class="jd-parse-bar" @click="importDialogOpen = true">
       <span class="jd-parse-icon">📷</span>
       <span class="jd-parse-text">
         <b>招聘信息智能录入</b>
@@ -379,7 +379,7 @@ const channels = computed(() => DEFAULT_CHANNELS)
 
     <template #footer>
       <div class="dialog-footer">
-        <el-button v-if="authState.user?.isAdmin" @click="openJdDialog">📄 粘贴 JD 解析</el-button>
+        <el-button @click="openJdDialog">📄 粘贴 JD 解析</el-button>
         <div>
           <el-button @click="emit('update:modelValue', false)">取消</el-button>
           <el-button type="primary" :loading="saving" @click="save">保存</el-button>
@@ -387,14 +387,14 @@ const channels = computed(() => DEFAULT_CHANNELS)
       </div>
     </template>
 
-    <el-dialog v-if="authState.user?.isAdmin" v-model="jdDialogOpen" title="粘贴 JD 解析" width="560px" append-to-body>
+    <el-dialog v-model="jdDialogOpen" title="粘贴 JD 解析" width="560px" append-to-body>
       <el-input v-model="jdInput" type="textarea" :rows="10" placeholder="把招聘 JD 原文粘贴到这里，AI 可识别公司 / 职位 / 地点 / JD 链接" />
       <template #footer>
         <el-button @click="jdDialogOpen = false">取消</el-button>
         <el-button type="primary" :loading="aiParsing" @click="parseJdAi">✨ AI 解析</el-button>
       </template>
     </el-dialog>
-    <ApplicationImportDialog v-if="authState.user?.isAdmin" :key="formSession" ref="importDialog" v-model="importDialogOpen" :draft="importDraft" @apply="applyImport" />
+    <ApplicationImportDialog :key="formSession" ref="importDialog" v-model="importDialogOpen" :draft="importDraft" @apply="applyImport" />
     <el-dialog v-model="stageDialogOpen" title="补充环节时间" width="420px" append-to-body destroy-on-close>
       <p class="stage-dialog-tip">
         状态将进入 <b>{{ pendingStageStatus ? STATUS_LABELS[pendingStageStatus] : '' }}</b>，请填写本次环节时间以创建日程。

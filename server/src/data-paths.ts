@@ -15,3 +15,5 @@ export const WORKSPACE_FILES_DIR = path.join(DATA_DIR, 'workspace_files')
 export const WORKSPACE_RESUMES_DIR = path.join(WORKSPACE_FILES_DIR, 'resumes')
 /** 面经截图也属于用户私有材料，不能继续放在旧的全局 knowledge_images 目录。 */
 export const WORKSPACE_KNOWLEDGE_IMAGES_DIR = path.join(WORKSPACE_FILES_DIR, 'knowledge_images')
+/** 招聘信息智能录入的原始材料，仅经当前工作区的鉴权接口预览。 */
+export const WORKSPACE_APPLICATION_MATERIALS_DIR = path.join(WORKSPACE_FILES_DIR, 'application_materials')
