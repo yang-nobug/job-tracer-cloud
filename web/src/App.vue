@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from './api'
 import { store, openCreateForm, openKnowledgeIngest } from './store'
@@ -14,6 +15,10 @@ import MailSettingsDialog from './components/MailSettingsDialog.vue'
 import ObservabilityDialog from './components/ObservabilityDialog.vue'
 import ProjectArchiveDialog from './components/ProjectArchiveDialog.vue'
 import ResumeLibraryDialog from './components/ResumeLibraryDialog.vue'
+import AuthGate from './components/AuthGate.vue'
+import AccountDialog from './components/AccountDialog.vue'
+import WorkspaceMigrationNotice from './components/WorkspaceMigrationNotice.vue'
+import { authState, initializeAuth, logout } from './auth'
 
 const route = useRoute()
 const router = useRouter()
@@ -22,6 +27,7 @@ const privacyOpen = ref(false)
 const mailSettingsOpen = ref(false)
 const observabilityOpen = ref(false)
 const projectArchiveOpen = ref(false)
+const accountOpen = ref(false)
 let timer: ReturnType<typeof setInterval> | null = null
 
 // 双工作区（需求 3.10）：投递跟踪 / 学习成长
@@ -37,6 +43,21 @@ function onMoreCommand(command: string | number | object): void {
   if (command === 'project') projectArchiveOpen.value = true
   else if (command === 'observability') observabilityOpen.value = true
   else if (command === 'privacy') privacyOpen.value = true
+}
+
+function onAccountCommand(command: string | number | object): void {
+  if (command === 'account') accountOpen.value = true
+  else if (command === 'logout') void signOut()
+}
+
+async function signOut(): Promise<void> {
+  try {
+    await logout()
+    router.replace('/')
+    ElMessage.success('已退出登录')
+  } catch (error) {
+    ElMessage.error((error as Error).message)
+  }
 }
 
 function openUpcoming(item: UpcomingItem): void {
@@ -58,17 +79,29 @@ async function loadUpcoming(): Promise<void> {
 }
 
 onMounted(() => {
-  loadUpcoming()
-  timer = setInterval(loadUpcoming, 60_000)
+  void initializeAuth().catch(error => ElMessage.error((error as Error).message))
 })
 onUnmounted(() => {
   if (timer) clearInterval(timer)
 })
 watch(() => store.dataVersion, () => { void loadUpcoming() })
+watch(() => authState.user?.userId, userId => {
+  if (!userId) {
+    upcoming.value = []
+    if (timer) clearInterval(timer)
+    timer = null
+    return
+  }
+  void loadUpcoming()
+  if (!timer) timer = setInterval(loadUpcoming, 60_000)
+})
 </script>
 
 <template>
-  <div class="app-shell">
+  <div v-if="authState.loading" class="auth-loading">正在检查登录状态…</div>
+  <AuthGate v-else-if="!authState.user" />
+  <WorkspaceMigrationNotice v-else-if="!authState.user.isAdmin" />
+  <div v-else class="app-shell">
     <header class="header">
       <div class="header-inner">
         <button class="brand" type="button" aria-label="返回求职看板" @click="router.push('/track/kanban')">
@@ -107,6 +140,15 @@ watch(() => store.dataVersion, () => { void loadUpcoming() })
           </template>
         </nav>
         <div class="header-actions">
+          <el-dropdown trigger="click" @command="onAccountCommand">
+            <el-button class="utility-button account-button" text>{{ authState.user.displayName }} <span class="more-caret">⌄</span></el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="account">账号与访问管理</el-dropdown-item>
+                <el-dropdown-item divided command="logout">退出登录</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
           <el-button class="utility-button" text @click="store.resumeLibraryOpen = true">简历</el-button>
           <el-button class="utility-button" text @click="mailSettingsOpen = true">日程</el-button>
           <el-dropdown trigger="click" @command="onMoreCommand">
@@ -142,6 +184,7 @@ watch(() => store.dataVersion, () => { void loadUpcoming() })
     <ObservabilityDialog v-model="observabilityOpen" />
     <ProjectArchiveDialog v-model="projectArchiveOpen" />
     <ResumeLibraryDialog v-model="store.resumeLibraryOpen" />
+    <AccountDialog v-model="accountOpen" />
   </div>
 </template>
 
@@ -167,6 +210,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 .app-shell { min-height: 100vh; }
+.auth-loading { min-height: 100vh; display: grid; place-items: center; color: #728095; background: var(--jt-bg); font-size: 14px; }
 
 .header {
   position: sticky; top: 0; z-index: 100;
@@ -216,6 +260,7 @@ body {
 .header-actions .el-button + .el-button { margin-left: 0; }
 .utility-button { color: var(--jt-text-muted); font-weight: 550; }
 .utility-button:hover { color: var(--jt-primary); background: var(--jt-primary-soft); }
+.account-button { max-width: 130px; overflow: hidden; text-overflow: ellipsis; }
 .more-caret { margin-left: 2px; font-size: 14px; }
 .primary-action { min-width: 96px; margin-left: 6px; border-radius: 8px; font-weight: 650; box-shadow: 0 5px 12px rgba(47, 111, 237, .18); }
 

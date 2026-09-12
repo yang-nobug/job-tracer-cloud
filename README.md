@@ -71,9 +71,24 @@ npm run db:check
 
 ## 开发路线
 
-1. 用户、登录、会话与工作空间成员模型；
+1. 用户、审批注册、登录、会话与工作空间成员模型；
 2. SQLite 迁移至 PostgreSQL，所有业务表按工作空间隔离；
 3. 简历、截图、录音和材料迁移到服务器私有文件目录；
 4. 邮箱扫描、AI 任务和日志按工作空间隔离；
 5. Docker、systemd、HTTPS、备份与监控；
 6. 从本地版导入用户个人数据。
+
+## 账号审批与首次管理员
+
+公开页面只允许提交注册申请。管理员在“账号与访问管理”中批准申请后，系统才会创建账号和个人工作区；申请中保存的密码哈希会随审批结果清除。首次管理员仅能由服务器终端创建一次：
+
+```bash
+export DATABASE_URL='postgresql://job_tracer:数据库密码@127.0.0.1:5432/job_tracer'
+export BOOTSTRAP_ADMIN_EMAIL='你的邮箱'
+export BOOTSTRAP_ADMIN_DISPLAY_NAME='管理员昵称'
+export BOOTSTRAP_ADMIN_PASSWORD='至少12位的登录密码'
+npm run auth:bootstrap
+unset DATABASE_URL BOOTSTRAP_ADMIN_EMAIL BOOTSTRAP_ADMIN_DISPLAY_NAME BOOTSTRAP_ADMIN_PASSWORD
+```
+
+当前阶段，账号与审批数据已经使用 PostgreSQL；投递、日程、知识库等既有业务仍在 SQLite，尚未按 `workspace_id` 隔离。因此不能把“账号已登录”误认为“业务数据已完成多用户隔离”。业务数据迁移完成前，后端只允许平台管理员访问既有业务接口；已批准的普通用户会看到迁移提示页，避免看到共享旧数据。

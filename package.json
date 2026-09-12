@@ -15,7 +15,8 @@
     "start": "tsx server/src/index.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx server/src/database/migrate.ts",
-    "db:check": "tsx server/src/database/check.ts"
+    "db:check": "tsx server/src/database/check.ts",
+    "auth:bootstrap": "tsx server/src/auth-bootstrap.ts"
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",

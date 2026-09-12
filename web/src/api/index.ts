@@ -5,6 +5,7 @@ export class ApiError extends Error {
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(BASE + path, {
+    credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
     ...options
   })
@@ -30,7 +31,7 @@ export const api = {
     const form = new FormData()
     form.append('file', file)
     if (note) form.append('note', note)
-    return fetch(`${BASE}/resumes`, { method: 'POST', body: form }).then(async (res) => {
+    return fetch(`${BASE}/resumes`, { method: 'POST', body: form, credentials: 'same-origin' }).then(async (res) => {
       const body = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error((body as { message?: string }).message || '上传失败')
       return body
@@ -43,7 +44,7 @@ export const api = {
     form.append('source_id', String(sourceId))
     form.append('file', file)
     form.append('inference_file', inferenceFile)
-    return fetch(`${BASE}/knowledge/images`, { method: 'POST', body: form }).then(async (res) => {
+    return fetch(`${BASE}/knowledge/images`, { method: 'POST', body: form, credentials: 'same-origin' }).then(async (res) => {
       const body = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error((body as { message?: string }).message || '上传失败')
       return body
@@ -55,7 +56,7 @@ export const api = {
     const form = new FormData()
     form.append('interview_id', String(interviewId))
     form.append('audio', file)
-    return fetch(`${BASE}/recordings`, { method: 'POST', body: form }).then(async (res) => {
+    return fetch(`${BASE}/recordings`, { method: 'POST', body: form, credentials: 'same-origin' }).then(async (res) => {
       const body = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error((body as { message?: string }).message || '上传失败')
       return body

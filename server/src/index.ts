@@ -31,6 +31,9 @@ import { recoverInterruptedCodeReadingSessions } from './code-reading-agent.js'
 import { logApp, newTraceId, runWithTrace, validTraceId } from './observability.js'
 import { feishuRouter } from './routes/feishu.js'
 import { healthRouter } from './routes/health.js'
+import { authRouter } from './routes/auth.js'
+import { adminRouter } from './routes/admin.js'
+import { requireLegacyDataAccess } from './auth/guards.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const configuredPort = Number(process.env.PORT)
@@ -39,12 +42,16 @@ configurePrepAgentRuntime(PORT)
 configureMailAutomation(PORT)
 
 const app = express()
+// Node 仅监听本机，由单层 Nginx 反向代理提供公网访问。
+app.set('trust proxy', 1)
 const recoveredRecordings = recoverInterruptedRecordings()
 if (recoveredRecordings) console.log(`[recordings] 已恢复 ${recoveredRecordings} 个中断任务，可在页面点击重试`)
 const recoveredResumes = recoverInterruptedResumeExtractions()
 if (recoveredResumes) console.log(`[resumes] 已标记 ${recoveredResumes} 个中断的简历提取，可在简历选择器中重试`)
 app.use(express.json({ limit: '2mb' }))
 app.use('/api', healthRouter)
+app.use('/api/auth', authRouter)
+app.use('/api/admin', adminRouter)
 
 // 每个 HTTP 请求都有可回查的链路编号；内部 Python Agent 会透传该 header。
 app.use((req, res, next) => {
@@ -64,6 +71,8 @@ app.use((req, res, next) => {
   runWithTrace({ traceId }, next)
 })
 
+// 在业务表迁移到 PostgreSQL 前，禁止普通已批准用户访问共享 SQLite 数据。
+app.use('/api', requireLegacyDataAccess)
 app.use('/api', statsRouter)
 app.use('/api', aiRouter)
 app.use('/api', observabilityRouter)
@@ -85,12 +94,13 @@ app.use('/api', mailRouter)
 app.use('/api', mailAutomationRouter)
 
 // 统一错误处理（422/500 -> JSON）
-app.use((err: Error, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+app.use((err: Error & { status?: number }, req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err)
+  const status = Number.isInteger(err.status) && err.status! >= 400 && err.status! < 600 ? err.status! : 500
   logApp({ level: 'error', source: 'api', eventName: 'api.unhandled_error', message: err.message || '服务器错误',
     traceId: validTraceId(req.get('x-trace-id')) ?? undefined, errorCode: 'UNHANDLED_ERROR', errorStack: err.stack,
     context: { method: req.method, path: req.path } })
-  res.status(500).json({ message: err.message || '服务器错误' })
+  res.status(status).json({ message: err.message || '服务器错误' })
 })
 
 // 托管前端构建产物（npm run build 后存在）
