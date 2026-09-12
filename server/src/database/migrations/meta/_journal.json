@@ -57,6 +57,20 @@
       "when": 1789201200000,
       "tag": "0007_workspace-mail",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789201800000,
+      "tag": "0008_workspace-mail-automation",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1789202400000,
+      "tag": "0009_workspace-prep-agent",
+      "breakpoints": true
     }
   ]
 }

@@ -15,7 +15,8 @@ import { cloudKnowledgeAiRouter } from './routes/cloud-knowledge-ai.js'
 import { cloudAiRouter } from './routes/cloud-ai.js'
 import { cloudApplicationImportsRouter } from './routes/cloud-application-imports.js'
 import { localDataImportRouter } from './routes/local-data-import.js'
-import { cloudMailRouter } from './routes/cloud-mail.js'
+import { cloudMailRouter, startCloudMailAutomationScheduler, stopCloudMailAutomationScheduler } from './routes/cloud-mail.js'
+import { cloudPrepAgentRouter } from './routes/cloud-prep-agent.js'
 import { recoverInterruptedRecordings, recordingsRouter } from './routes/recordings.js'
 import { tutorRouter } from './routes/tutor.js'
 import { aiRouter } from './routes/ai.js'
@@ -30,6 +31,7 @@ import {
   configurePrepAgentRuntime, recoverPrepAgentRuntimeRun, stopPrepAgentService
 } from './prep-agent-runtime.js'
 import { recoverablePrepAgentRuns } from './prep-agent-service.js'
+import { recoverableCloudPrepRuns } from './cloud-prep-agent-service.js'
 import { observabilityRouter } from './routes/observability.js'
 import { projectsRouter } from './routes/projects.js'
 import { codeReadingRouter } from './routes/code-reading.js'
@@ -93,6 +95,8 @@ app.use('/api', cloudAiRouter)
 app.use('/api/application-imports', cloudApplicationImportsRouter)
 app.use('/api/local-data-import', localDataImportRouter)
 app.use('/api', cloudMailRouter)
+// 面试准备计划已迁入 PostgreSQL，必须在旧 SQLite 路由之前注册。
+app.use('/api', cloudPrepAgentRouter)
 
 // 其余模块仍使用共享 SQLite 数据，继续限制为管理员，直到逐项迁移完成。
 app.use('/api', requireLegacyDataAccess)
@@ -141,6 +145,7 @@ const server = app.listen(PORT, '127.0.0.1', () => {
   const interruptedCodeSessions = recoverInterruptedCodeReadingSessions()
   if (interruptedCodeSessions) console.log(`[code-reading] 已标记 ${interruptedCodeSessions} 个中断调查，可在项目档案中点击重试`)
   startMailAutomationScheduler()
+  startCloudMailAutomationScheduler()
   const recoverable = recoverablePrepAgentRuns()
   if (recoverable.length) {
     console.log(`[prep-agent] 正在恢复 ${recoverable.length} 个中断运行`)
@@ -150,10 +155,17 @@ const server = app.listen(PORT, '127.0.0.1', () => {
       })
     }
   }
+  void recoverableCloudPrepRuns().then(runs => {
+    if (runs.length) console.log(`[prep-agent] 正在恢复 ${runs.length} 个云端中断运行`)
+    for (const run of runs) recoverPrepAgentRuntimeRun(run.id).catch(error => {
+      console.error(`[prep-agent] 恢复云端运行 ${run.id} 失败:`, (error as Error).message)
+    })
+  }).catch(error => console.warn('[prep-agent] 查询云端恢复任务失败:', (error as Error).message))
 })
 
 function shutdown(): void {
   stopMailAutomationScheduler()
+  stopCloudMailAutomationScheduler()
   stopPrepAgentService()
   server.close(() => process.exit(0))
   setTimeout(() => process.exit(0), 1500).unref()

@@ -267,6 +267,10 @@ export const workspaceMailStatusUpdates = pgTable('workspace_mail_status_updates
   sourceMailCandidateId: integer('source_mail_candidate_id').primaryKey().references(() => workspaceMailCandidates.id, { onDelete: 'cascade' }), workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }), applicationId: integer('application_id').notNull(), scheduleId: integer('schedule_id').notNull().references(() => workspaceRecruitmentSchedules.id, { onDelete: 'cascade' }), fromStatus: varchar('from_status', { length: 24 }).notNull(), toStatus: varchar('to_status', { length: 24 }).notNull(), createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
 })
 
+export const workspaceMailAutomationSettings = pgTable('workspace_mail_automation_settings', {
+  workspaceId: uuid('workspace_id').primaryKey().references(() => workspaces.id, { onDelete: 'cascade' }), enabled: boolean('enabled').notNull().default(false), runTime: varchar('run_time', { length: 5 }).notNull().default('09:00'), lastRunAt: timestamp('last_run_at', { withTimezone: true }), lastStatus: varchar('last_status', { length: 16 }).notNull().default('idle'), lastErrorCode: varchar('last_error_code', { length: 80 }), lastErrorMessage: text('last_error_message'), lastScannedCount: integer('last_scanned_count').notNull().default(0), lastAnalyzedCount: integer('last_analyzed_count').notNull().default(0), lastConfirmedCount: integer('last_confirmed_count').notNull().default(0), lastReviewCount: integer('last_review_count').notNull().default(0), updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+})
+
 export const applicationEvents = pgTable('application_events', {
   id: serial('id').primaryKey(),
   workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
@@ -304,6 +308,19 @@ export const checklistItems = pgTable('checklist_items', {
 }, table => [
   index('checklist_items_workspace_interview_idx').on(table.workspaceId, table.interviewId, table.sort)
 ])
+
+/** 面试准备 Agent 的中间分析、运行步骤和确认后的计划均独立于旧 SQLite。 */
+export const workspacePrepAgentRuns = pgTable('workspace_prep_agent_runs', {
+  id: uuid('id').defaultRandom().primaryKey(), workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }), threadId: varchar('thread_id', { length: 80 }).notNull(), requestId: varchar('request_id', { length: 100 }).notNull(), applicationId: integer('application_id').notNull().references(() => applications.id, { onDelete: 'cascade' }), interviewId: integer('interview_id').notNull().references(() => interviews.id, { onDelete: 'cascade' }), status: varchar('status', { length: 24 }).notNull().default('pending'), goal: text('goal').notNull(), constraintsJson: text('constraints_json').notNull().default('{}'), inputHash: varchar('input_hash', { length: 64 }).notNull(), snapshotHash: varchar('snapshot_hash', { length: 64 }), currentNode: varchar('current_node', { length: 80 }), planJson: text('plan_json'), evidenceJson: text('evidence_json'), roleProfileJson: text('role_profile_json'), gapAnalysisJson: text('gap_analysis_json'), criticJson: text('critic_json'), warningsJson: text('warnings_json').notNull().default('[]'), errorType: varchar('error_type', { length: 80 }), errorMessage: text('error_message'), modelCalls: integer('model_calls').notNull().default(0), promptTokens: integer('prompt_tokens').notNull().default(0), completionTokens: integer('completion_tokens').notNull().default(0), totalTokens: integer('total_tokens').notNull().default(0), createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), finishedAt: timestamp('finished_at', { withTimezone: true })
+}, table => [uniqueIndex('workspace_prep_agent_runs_request_unique').on(table.workspaceId, table.requestId), index('workspace_prep_agent_runs_interview_idx').on(table.workspaceId, table.interviewId, table.createdAt)])
+
+export const workspacePrepAgentSteps = pgTable('workspace_prep_agent_steps', {
+  id: serial('id').primaryKey(), runId: uuid('run_id').notNull().references(() => workspacePrepAgentRuns.id, { onDelete: 'cascade' }), node: varchar('node', { length: 80 }).notNull(), attempt: integer('attempt').notNull(), status: varchar('status', { length: 24 }).notNull().default('running'), summary: text('summary'), inputHash: varchar('input_hash', { length: 64 }), outputHash: varchar('output_hash', { length: 64 }), durationMs: integer('duration_ms'), errorType: varchar('error_type', { length: 80 }), createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(), finishedAt: timestamp('finished_at', { withTimezone: true })
+}, table => [index('workspace_prep_agent_steps_run_idx').on(table.runId, table.id)])
+
+export const workspacePrepAgentPlanItems = pgTable('workspace_prep_agent_plan_items', {
+  id: serial('id').primaryKey(), runId: uuid('run_id').notNull().references(() => workspacePrepAgentRuns.id, { onDelete: 'cascade' }), checklistId: integer('checklist_id').references(() => checklistItems.id, { onDelete: 'set null' }), title: text('title').notNull(), category: varchar('category', { length: 32 }).notNull(), priority: varchar('priority', { length: 16 }).notNull(), estimatedMinutes: integer('estimated_minutes').notNull(), reason: text('reason').notNull(), successCriteria: text('success_criteria').notNull(), evidenceJson: text('evidence_json').notNull().default('[]'), sort: integer('sort').notNull()
+}, table => [index('workspace_prep_agent_plan_items_run_idx').on(table.runId, table.sort)])
 
 /** 旧 SQLite 核心业务数据的一次性导入凭据，防止误重复导入。 */
 export const legacyCoreImports = pgTable('legacy_core_imports', {
