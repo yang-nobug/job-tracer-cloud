@@ -33,7 +33,7 @@ import { feishuRouter } from './routes/feishu.js'
 import { healthRouter } from './routes/health.js'
 import { authRouter } from './routes/auth.js'
 import { adminRouter } from './routes/admin.js'
-import { requireLegacyDataAccess } from './auth/guards.js'
+import { requireAuth, requireLegacyDataAccess, requireSameOrigin } from './auth/guards.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const configuredPort = Number(process.env.PORT)
@@ -71,18 +71,25 @@ app.use((req, res, next) => {
   runWithTrace({ traceId }, next)
 })
 
-// 在业务表迁移到 PostgreSQL 前，禁止普通已批准用户访问共享 SQLite 数据。
-app.use('/api', requireLegacyDataAccess)
+// 已迁入 PostgreSQL 的核心投递数据可供所有已批准用户使用。
+app.use('/api', requireAuth)
+app.use('/api', (req, res, next) => {
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return requireSameOrigin(req, res, next)
+  next()
+})
 app.use('/api', statsRouter)
+app.use('/api', interviewsRouter)
+app.use('/api', eventsRouter)
+app.use('/api/applications', applicationsRouter)
+
+// 其余模块仍使用共享 SQLite 数据，继续限制为管理员，直到逐项迁移完成。
+app.use('/api', requireLegacyDataAccess)
 app.use('/api', aiRouter)
 app.use('/api', observabilityRouter)
 app.use('/api/feishu', feishuRouter)
 app.use('/api', projectsRouter)
 app.use('/api', codeReadingRouter)
-app.use('/api', interviewsRouter)
-app.use('/api', eventsRouter)
 app.use('/api/resumes', resumesRouter)
-app.use('/api/applications', applicationsRouter)
 app.use('/api/application-imports', applicationImportsRouter)
 app.use('/api/knowledge', knowledgeRouter)
 app.use('/api', knowledgeAiRouter)
@@ -95,9 +102,9 @@ app.use('/api', mailAutomationRouter)
 
 // 统一错误处理（422/500 -> JSON）
 app.use((err: Error & { status?: number }, req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error(err)
   const status = Number.isInteger(err.status) && err.status! >= 400 && err.status! < 600 ? err.status! : 500
-  logApp({ level: 'error', source: 'api', eventName: 'api.unhandled_error', message: err.message || '服务器错误',
+  if (status >= 500) console.error(err)
+  logApp({ level: status >= 500 ? 'error' : 'warn', source: 'api', eventName: 'api.unhandled_error', message: err.message || '服务器错误',
     traceId: validTraceId(req.get('x-trace-id')) ?? undefined, errorCode: 'UNHANDLED_ERROR', errorStack: err.stack,
     context: { method: req.method, path: req.path } })
   res.status(status).json({ message: err.message || '服务器错误' })

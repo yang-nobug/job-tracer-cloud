@@ -15,6 +15,20 @@
       "when": 1789181628794,
       "tag": "0001_concerned_silverclaw",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789184690766,
+      "tag": "0002_workspace-core-business",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1789184883752,
+      "tag": "0003_legacy-core-import-guard",
+      "breakpoints": true
     }
   ]
 }

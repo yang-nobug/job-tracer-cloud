@@ -16,6 +16,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx server/src/database/migrate.ts",
     "db:check": "tsx server/src/database/check.ts",
+    "db:import-legacy-core": "tsx server/src/database/import-legacy-core.ts",
     "auth:bootstrap": "tsx server/src/auth-bootstrap.ts"
   },
   "dependencies": {

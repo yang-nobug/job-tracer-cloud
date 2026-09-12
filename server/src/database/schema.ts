@@ -1,8 +1,10 @@
 import {
   boolean,
+  integer,
   index,
   pgTable,
   primaryKey,
+  serial,
   text,
   timestamp,
   uniqueIndex,
@@ -77,4 +79,88 @@ export const registrationRequests = pgTable('registration_requests', {
 }, table => [
   uniqueIndex('registration_requests_email_normalized_unique').on(table.emailNormalized),
   index('registration_requests_status_requested_at_idx').on(table.status, table.requestedAt)
+])
+
+/**
+ * 第一批已经迁入云端的业务数据。ID 继续使用整数，保持既有 Web API 的
+ * 调用方式不变；workspaceId 是每张表的不可空隔离边界。
+ */
+export const applications = pgTable('applications', {
+  id: serial('id').primaryKey(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  company: text('company').notNull(),
+  position: text('position').notNull(),
+  status: varchar('status', { length: 24 }).notNull().default('unsent'),
+  appliedAt: varchar('applied_at', { length: 10 }),
+  appliedTime: varchar('applied_time', { length: 8 }),
+  channel: text('channel'),
+  location: text('location'),
+  jdLink: text('jd_link'),
+  applicationLink: text('application_link'),
+  jdText: text('jd_text'),
+  contactName: text('contact_name'),
+  contactInfo: text('contact_info'),
+  notes: text('notes'),
+  rejectedAt: varchar('rejected_at', { length: 10 }),
+  rejectType: varchar('reject_type', { length: 16 }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+}, table => [
+  index('applications_workspace_updated_idx').on(table.workspaceId, table.updatedAt),
+  index('applications_workspace_status_idx').on(table.workspaceId, table.status),
+  index('applications_workspace_company_idx').on(table.workspaceId, table.company)
+])
+
+export const applicationEvents = pgTable('application_events', {
+  id: serial('id').primaryKey(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  applicationId: integer('application_id').notNull().references(() => applications.id, { onDelete: 'cascade' }),
+  type: varchar('type', { length: 24 }).notNull(),
+  eventDate: varchar('event_date', { length: 10 }).notNull(),
+  content: text('content').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+}, table => [
+  index('application_events_workspace_application_idx').on(table.workspaceId, table.applicationId, table.eventDate)
+])
+
+export const interviews = pgTable('interviews', {
+  id: serial('id').primaryKey(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  applicationId: integer('application_id').notNull().references(() => applications.id, { onDelete: 'cascade' }),
+  round: varchar('round', { length: 40 }).notNull(),
+  scheduledAt: varchar('scheduled_at', { length: 16 }).notNull(),
+  location: text('location'),
+  reviewFile: text('review_file'),
+  done: boolean('done').notNull().default(false),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+}, table => [
+  index('interviews_workspace_time_idx').on(table.workspaceId, table.scheduledAt),
+  index('interviews_workspace_application_idx').on(table.workspaceId, table.applicationId)
+])
+
+export const checklistItems = pgTable('checklist_items', {
+  id: serial('id').primaryKey(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  interviewId: integer('interview_id').notNull().references(() => interviews.id, { onDelete: 'cascade' }),
+  content: text('content').notNull(),
+  done: boolean('done').notNull().default(false),
+  sort: integer('sort').notNull().default(0)
+}, table => [
+  index('checklist_items_workspace_interview_idx').on(table.workspaceId, table.interviewId, table.sort)
+])
+
+/** 旧 SQLite 核心业务数据的一次性导入凭据，防止误重复导入。 */
+export const legacyCoreImports = pgTable('legacy_core_imports', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  sourceHash: varchar('source_hash', { length: 64 }).notNull(),
+  sourceLabel: text('source_label').notNull(),
+  applicationsCount: integer('applications_count').notNull().default(0),
+  eventsCount: integer('events_count').notNull().default(0),
+  interviewsCount: integer('interviews_count').notNull().default(0),
+  checklistItemsCount: integer('checklist_items_count').notNull().default(0),
+  importedAt: timestamp('imported_at', { withTimezone: true }).notNull().defaultNow()
+}, table => [
+  uniqueIndex('legacy_core_imports_workspace_unique').on(table.workspaceId),
+  uniqueIndex('legacy_core_imports_source_hash_unique').on(table.sourceHash)
 ])

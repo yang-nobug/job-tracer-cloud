@@ -17,7 +17,6 @@ import ProjectArchiveDialog from './components/ProjectArchiveDialog.vue'
 import ResumeLibraryDialog from './components/ResumeLibraryDialog.vue'
 import AuthGate from './components/AuthGate.vue'
 import AccountDialog from './components/AccountDialog.vue'
-import WorkspaceMigrationNotice from './components/WorkspaceMigrationNotice.vue'
 import { authState, initializeAuth, logout } from './auth'
 
 const route = useRoute()
@@ -100,7 +99,6 @@ watch(() => authState.user?.userId, userId => {
 <template>
   <div v-if="authState.loading" class="auth-loading">正在检查登录状态…</div>
   <AuthGate v-else-if="!authState.user" />
-  <WorkspaceMigrationNotice v-else-if="!authState.user.isAdmin" />
   <div v-else class="app-shell">
     <header class="header">
       <div class="header-inner">
@@ -119,6 +117,7 @@ watch(() => authState.user?.userId, userId => {
             投递
           </button>
           <button
+            v-if="authState.user.isAdmin"
             class="ws-pill"
             :class="{ active: workspace === 'learn' }"
             role="tab"
@@ -134,7 +133,7 @@ watch(() => authState.user?.userId, userId => {
             <router-link to="/track/list" class="nav-link" :class="{ active: route.path === '/track/list' }">列表</router-link>
             <router-link to="/track/stats" class="nav-link" :class="{ active: route.path === '/track/stats' }">统计</router-link>
           </template>
-          <template v-else>
+          <template v-else-if="authState.user.isAdmin">
             <router-link to="/learn/reviews" class="nav-link" :class="{ active: route.path === '/learn/reviews' }">复盘</router-link>
             <router-link to="/learn/knowledge" class="nav-link" :class="{ active: route.path.startsWith('/learn/knowledge') }">学习</router-link>
           </template>
@@ -149,9 +148,9 @@ watch(() => authState.user?.userId, userId => {
               </el-dropdown-menu>
             </template>
           </el-dropdown>
-          <el-button class="utility-button" text @click="store.resumeLibraryOpen = true">简历</el-button>
-          <el-button class="utility-button" text @click="mailSettingsOpen = true">日程</el-button>
-          <el-dropdown trigger="click" @command="onMoreCommand">
+          <el-button v-if="authState.user.isAdmin" class="utility-button" text @click="store.resumeLibraryOpen = true">简历</el-button>
+          <el-button v-if="authState.user.isAdmin" class="utility-button" text @click="mailSettingsOpen = true">日程</el-button>
+          <el-dropdown v-if="authState.user.isAdmin" trigger="click" @command="onMoreCommand">
             <el-button class="utility-button" text>更多 <span class="more-caret">⌄</span></el-button>
             <template #dropdown>
               <el-dropdown-menu>
@@ -162,7 +161,7 @@ watch(() => authState.user?.userId, userId => {
             </template>
           </el-dropdown>
           <el-button v-if="workspace === 'track'" class="primary-action" type="primary" @click="openCreateForm()">新增投递</el-button>
-          <el-button v-else class="primary-action" type="primary" @click="openKnowledgeIngest">录入面经</el-button>
+          <el-button v-else-if="authState.user.isAdmin" class="primary-action" type="primary" @click="openKnowledgeIngest">录入面经</el-button>
         </div>
       </div>
       <CountdownBar v-if="workspace === 'track'" :items="upcoming" @select="openUpcoming" />
@@ -170,10 +169,16 @@ watch(() => authState.user?.userId, userId => {
 
     <main class="main" :class="{ 'main-learn': workspace === 'learn' }">
       <div class="main-content">
-        <router-view />
+        <router-view v-if="workspace === 'track' || authState.user.isAdmin" />
+        <section v-else class="module-migration-note">
+          <p class="page-kicker">WORKSPACE MIGRATION</p>
+          <h2>学习与 AI 工具正在迁移</h2>
+          <p>投递看板、面试安排和准备清单已进入你的私人工作区；简历、邮件、知识库与 AI 工具将在后续迁移完成后开放。</p>
+          <el-button type="primary" @click="router.push('/track/kanban')">返回投递看板</el-button>
+        </section>
       </div>
       <!-- 学习区右侧常驻 AI 助教栏：随路由切换不销毁，切到投递区隐藏但保留对话 -->
-      <TutorPanel v-show="workspace === 'learn'" />
+      <TutorPanel v-show="workspace === 'learn' && authState.user.isAdmin" />
     </main>
 
     <AppFormDrawer v-model="store.formDrawerOpen" :editing="store.editingApp" />
@@ -268,6 +273,9 @@ body {
 /* 学习区：内容 + 右侧助教栏分栏 */
 .main-learn { display: flex; gap: 20px; align-items: flex-start; }
 .main-content { flex: 1; min-width: 0; }
+.module-migration-note { max-width: 620px; margin: 60px auto; padding: 38px; text-align: center; border: 1px solid var(--jt-line); border-radius: 16px; background: var(--jt-surface); box-shadow: var(--jt-shadow); }
+.module-migration-note h2 { margin: 8px 0 12px; font-size: 22px; }
+.module-migration-note p:not(.page-kicker) { margin: 0 0 22px; color: var(--jt-text-muted); line-height: 1.75; }
 
 /* Element Plus 基础表面统一，具体业务组件可保留自己的局部布局。 */
 .el-card { border-color: var(--jt-line); border-radius: var(--jt-radius); box-shadow: none; }
