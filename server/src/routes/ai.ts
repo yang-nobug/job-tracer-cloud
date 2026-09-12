@@ -46,7 +46,7 @@ aiRouter.get('/ai/settings', (_req: Request, res: Response) => {
   })
 })
 
-aiRouter.put('/ai/settings/:task', (req: Request, res: Response) => {
+aiRouter.put('/ai/settings/:task', async (req: Request, res: Response) => {
   const task = req.params.task as AiTask
   if (!AI_TASKS.includes(task)) {
     res.status(404).json({ message: '未知 AI 任务' })
@@ -56,7 +56,11 @@ aiRouter.put('/ai/settings/:task', (req: Request, res: Response) => {
     res.status(422).json({ message: 'enabled 必须是布尔值' })
     return
   }
-  setAiTaskEnabled(task, req.body.enabled)
+  if (!req.auth?.userId) {
+    res.status(401).json({ message: '请先登录' })
+    return
+  }
+  await setAiTaskEnabled(task, req.body.enabled, req.auth.userId)
   res.json({ task, enabled: isAiTaskEnabled(task) })
 })
 

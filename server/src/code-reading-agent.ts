@@ -162,7 +162,7 @@ function readRange(project: { root: string; scopes: string[] }, rawPath: unknown
   return { relative_path: file.relative, start_line: start, end_line: end, excerpt: lines.slice(start - 1, end).join('\n').slice(0, 16_000) }
 }
 
-const DECISION_SCHEMA = {
+export const DECISION_SCHEMA = {
   type: 'object', additionalProperties: false, required: ['action', 'reason', 'tool', 'final'], properties: {
     action: { type: 'string', enum: ['tool', 'final'] }, reason: { type: 'string' },
     tool: { type: ['object', 'null'], additionalProperties: false, properties: { name: { type: 'string', enum: ['list_tree', 'find_files', 'search_code', 'read_range'] }, arguments: { type: 'object' } }, required: ['name', 'arguments'] },
@@ -172,7 +172,7 @@ const DECISION_SCHEMA = {
   }
 }
 
-function validateDecision(value: unknown): { action: 'tool' | 'final'; reason: string; tool: { name: ToolName; arguments: Record<string, unknown> } | null; final: { overview: string; answer: string; claims: Claim[]; follow_up_questions: string[] } | null } {
+export function validateDecision(value: unknown): { action: 'tool' | 'final'; reason: string; tool: { name: ToolName; arguments: Record<string, unknown> } | null; final: { overview: string; answer: string; claims: Claim[]; follow_up_questions: string[] } | null } {
   const raw = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
   if (!raw || (raw.action !== 'tool' && raw.action !== 'final')) throw new Error('action 非法')
   const reason = clean(raw.reason, 600)

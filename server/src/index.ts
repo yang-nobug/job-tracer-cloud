@@ -8,8 +8,6 @@ import { interviewsRouter } from './routes/interviews.js'
 import { resumesRouter } from './routes/resumes.js'
 import { recoverInterruptedCloudResumeExtractions } from './cloud-resume-text.js'
 import { statsRouter } from './routes/stats.js'
-import { knowledgeRouter } from './routes/knowledge.js'
-import { knowledgeAiRouter } from './routes/knowledge-ai.js'
 import { cloudKnowledgeRouter } from './routes/cloud-knowledge.js'
 import { cloudKnowledgeAiRouter } from './routes/cloud-knowledge-ai.js'
 import { cloudAiRouter } from './routes/cloud-ai.js'
@@ -18,42 +16,39 @@ import { localDataImportRouter } from './routes/local-data-import.js'
 import { cloudMailRouter, startCloudMailAutomationScheduler, stopCloudMailAutomationScheduler } from './routes/cloud-mail.js'
 import { cloudPrepAgentRouter } from './routes/cloud-prep-agent.js'
 import { cloudPrepTasksRouter } from './routes/cloud-prep-tasks.js'
-import { recoverInterruptedRecordings, recordingsRouter } from './routes/recordings.js'
-import { tutorRouter } from './routes/tutor.js'
-import { aiRouter } from './routes/ai.js'
-import { applicationImportsRouter } from './routes/application-imports.js'
-import { prepAgentRouter } from './routes/prep-agent.js'
-import { prepTasksRouter } from './routes/prep-tasks.js'
-import { mailRouter, recoverInterruptedMailAnalyses } from './routes/mail.js'
-import {
-  configureMailAutomation, mailAutomationRouter, startMailAutomationScheduler, stopMailAutomationScheduler
-} from './mail-automation.js'
+import { cloudReviewsRouter } from './routes/cloud-reviews.js'
+import { cloudRecordingsRouter, recoverInterruptedCloudRecordings } from './routes/cloud-recordings.js'
+import { cloudTutorRouter } from './routes/cloud-tutor.js'
+import { cloudProjectsRouter } from './routes/cloud-projects.js'
+import { cloudCodeReadingRouter, recoverInterruptedCloudCodeReadingSessions } from './routes/cloud-code-reading.js'
+import { cloudAiAuditRouter } from './routes/cloud-ai-audit.js'
+import { cloudAiSettingsRouter } from './routes/cloud-ai-settings.js'
+import { cloudObservabilityRouter } from './routes/cloud-observability.js'
+import { refreshPlatformAiSettings } from './platform-ai-settings.js'
 import {
   configurePrepAgentRuntime, recoverPrepAgentRuntimeRun, stopPrepAgentService
 } from './prep-agent-runtime.js'
-import { recoverablePrepAgentRuns } from './prep-agent-service.js'
 import { recoverableCloudPrepRuns } from './cloud-prep-agent-service.js'
-import { observabilityRouter } from './routes/observability.js'
-import { projectsRouter } from './routes/projects.js'
-import { codeReadingRouter } from './routes/code-reading.js'
-import { recoverInterruptedCodeReadingSessions } from './code-reading-agent.js'
 import { logApp, newTraceId, runWithTrace, validTraceId } from './observability.js'
 import { healthRouter } from './routes/health.js'
 import { authRouter } from './routes/auth.js'
 import { adminRouter } from './routes/admin.js'
-import { requireAuth, requireLegacyDataAccess, requireSameOrigin } from './auth/guards.js'
+import { requireAuth, requireSameOrigin } from './auth/guards.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const configuredPort = Number(process.env.PORT)
 const PORT = Number.isInteger(configuredPort) && configuredPort > 0 && configuredPort <= 65_535 ? configuredPort : 3210
 configurePrepAgentRuntime(PORT)
-configureMailAutomation(PORT)
 
 const app = express()
 // Node 仅监听本机，由单层 Nginx 反向代理提供公网访问。
 app.set('trust proxy', 1)
-const recoveredRecordings = recoverInterruptedRecordings()
-if (recoveredRecordings) console.log(`[recordings] 已恢复 ${recoveredRecordings} 个中断任务，可在页面点击重试`)
+void recoverInterruptedCloudRecordings().then(count => {
+  if (count) console.log(`[cloud-recordings] 已标记 ${count} 个中断任务，可在页面点击重试`)
+}).catch(error => console.warn('[cloud-recordings] 恢复中断任务失败:', (error as Error).message))
+void recoverInterruptedCloudCodeReadingSessions().then(count => {
+  if (count) console.log(`[cloud-code-reading] 已标记 ${count} 个中断调查，可在页面点击重试`)
+}).catch(error => console.warn('[cloud-code-reading] 恢复中断任务失败:', (error as Error).message))
 app.use(express.json({ limit: '2mb' }))
 app.use('/api', healthRouter)
 app.use('/api/auth', authRouter)
@@ -77,13 +72,22 @@ app.use((req, res, next) => {
   runWithTrace({ traceId }, next)
 })
 
-// 已迁入 PostgreSQL 的核心投递数据可供所有已批准用户使用。
-app.use('/api', requireAuth)
+// Python 面试准备 Agent 只能从本机以内部令牌调用这两个路径；它没有浏览器 Cookie。
+// 实际路由仍会校验 loopback 地址和令牌，其他 API 一律要求登录。
+app.use('/api', (req, res, next) => {
+  if (req.path.startsWith('/internal/prep-agent/') || req.path.startsWith('/internal/code-reading/')) return next()
+  void requireAuth(req, res, next)
+})
 app.use('/api', (req, res, next) => {
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return requireSameOrigin(req, res, next)
   next()
 })
 app.use('/api', statsRouter)
+app.use('/api', cloudReviewsRouter)
+app.use('/api', cloudRecordingsRouter)
+app.use('/api', cloudTutorRouter)
+app.use('/api', cloudProjectsRouter)
+app.use('/api', cloudCodeReadingRouter)
 app.use('/api', interviewsRouter)
 app.use('/api', eventsRouter)
 app.use('/api/applications', applicationsRouter)
@@ -92,28 +96,24 @@ app.use('/api/resumes', resumesRouter)
 app.use('/api/knowledge', cloudKnowledgeRouter)
 app.use('/api', cloudKnowledgeAiRouter)
 app.use('/api', cloudAiRouter)
+// AI 开关与助教默认模型使用平台 PostgreSQL 配置，不再落入旧 SQLite。
+app.use('/api', cloudAiSettingsRouter)
+// AI 调用记录保存于工作区 PostgreSQL，优先于旧 SQLite 的同路径接口。
+app.use('/api', cloudAiAuditRouter)
+app.use('/api', cloudObservabilityRouter)
 app.use('/api/application-imports', cloudApplicationImportsRouter)
 app.use('/api/local-data-import', localDataImportRouter)
 app.use('/api', cloudMailRouter)
-// 面试准备计划已迁入 PostgreSQL，必须在旧 SQLite 路由之前注册。
+// 面试准备计划及其任务执行均按工作区存入 PostgreSQL。
 app.use('/api', cloudPrepAgentRouter)
 app.use('/api', cloudPrepTasksRouter)
 
-// 其余模块仍使用共享 SQLite 数据，继续限制为管理员，直到逐项迁移完成。
-app.use('/api', requireLegacyDataAccess)
-app.use('/api', aiRouter)
-app.use('/api', observabilityRouter)
-app.use('/api', projectsRouter)
-app.use('/api', codeReadingRouter)
-app.use('/api/application-imports', applicationImportsRouter)
-app.use('/api/knowledge', knowledgeRouter)
-app.use('/api', knowledgeAiRouter)
-app.use('/api/recordings', recordingsRouter)
-app.use('/api/tutor', tutorRouter)
-app.use('/api', prepAgentRouter)
-app.use('/api', prepTasksRouter)
-app.use('/api', mailRouter)
-app.use('/api', mailAutomationRouter)
+// 先恢复平台级 AI 配置，再开始接收请求，避免重启瞬间回退到 config.json 默认值。
+try {
+  await refreshPlatformAiSettings()
+} catch (error) {
+  console.warn('[platform-ai-settings] 加载失败，将暂用 config.json 默认值:', (error as Error).message)
+}
 
 // 统一错误处理（422/500 -> JSON）
 app.use((err: Error & { status?: number }, req: express.Request, res: express.Response, _next: express.NextFunction) => {
@@ -141,20 +141,7 @@ const server = app.listen(PORT, '127.0.0.1', () => {
   void recoverInterruptedCloudResumeExtractions().then(count => {
     if (count) console.log(`[resumes] 已标记 ${count} 个中断的简历提取，可在简历选择器中重试`)
   }).catch(error => console.warn('[resumes] 恢复中断提取状态失败:', (error as Error).message))
-  recoverInterruptedMailAnalyses()
-  const interruptedCodeSessions = recoverInterruptedCodeReadingSessions()
-  if (interruptedCodeSessions) console.log(`[code-reading] 已标记 ${interruptedCodeSessions} 个中断调查，可在项目档案中点击重试`)
-  startMailAutomationScheduler()
   startCloudMailAutomationScheduler()
-  const recoverable = recoverablePrepAgentRuns()
-  if (recoverable.length) {
-    console.log(`[prep-agent] 正在恢复 ${recoverable.length} 个中断运行`)
-    for (const run of recoverable) {
-      recoverPrepAgentRuntimeRun(run.id).catch(error => {
-        console.error(`[prep-agent] 恢复 ${run.id} 失败:`, (error as Error).message)
-      })
-    }
-  }
   void recoverableCloudPrepRuns().then(runs => {
     if (runs.length) console.log(`[prep-agent] 正在恢复 ${runs.length} 个云端中断运行`)
     for (const run of runs) recoverPrepAgentRuntimeRun(run.id).catch(error => {
@@ -164,7 +151,6 @@ const server = app.listen(PORT, '127.0.0.1', () => {
 })
 
 function shutdown(): void {
-  stopMailAutomationScheduler()
   stopCloudMailAutomationScheduler()
   stopPrepAgentService()
   server.close(() => process.exit(0))

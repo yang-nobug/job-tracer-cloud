@@ -4,7 +4,7 @@ import { ElMessage } from 'element-plus'
 import { api } from '../api'
 
 interface OperationRun {
-  id: number
+  id: string
   trace_id: string
   operation_type: string
   trigger_type: string
@@ -35,7 +35,7 @@ async function load(): Promise<void> {
   catch (error) { ElMessage.error((error as Error).message) }
   finally { loading.value = false }
 }
-async function showDetail(id: number): Promise<void> {
+async function showDetail(id: string): Promise<void> {
   try { detail.value = await api.get<RunDetail>(`/observability/runs/${id}`); detailOpen.value = true }
   catch (error) { ElMessage.error((error as Error).message) }
 }
@@ -44,7 +44,7 @@ watch(() => props.modelValue, open => { if (open) void load() })
 
 <template>
   <el-dialog v-model="visible" title="运行与日志" width="1060px" destroy-on-close>
-    <p class="hint">这里展示可追踪的长任务。展开后可查看步骤、错误和关联的 AI 调用；普通请求日志只用于本机诊断。</p>
+    <p class="hint">这里展示当前工作区的 AI 调用、录音复盘、邮件识别和面试准备任务。记录只对本工作区可见。</p>
     <div class="toolbar"><el-button size="small" :loading="loading" @click="load">刷新</el-button></div>
     <el-table v-loading="loading" :data="runs" size="small" max-height="460">
       <el-table-column label="时间" width="175"><template #default="s">{{ time(s.row.started_at) }}</template></el-table-column>

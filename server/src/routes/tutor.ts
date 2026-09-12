@@ -19,13 +19,17 @@ tutorRouter.get('/model', (_req: Request, res: Response) => {
   res.json({ models: config.models, active: tutorModel() })
 })
 
-tutorRouter.put('/model', (req: Request, res: Response) => {
+tutorRouter.put('/model', async (req: Request, res: Response) => {
   const model = (req.body?.model ?? '').trim()
   if (!model) {
     res.status(422).json({ message: 'model 不能为空' })
     return
   }
-  if (!setTutorModel(model)) {
+  if (!req.auth?.userId) {
+    res.status(401).json({ message: '请先登录' })
+    return
+  }
+  if (!await setTutorModel(model, req.auth.userId)) {
     res.status(422).json({ message: '该模型不在 config.json 的模型列表里' })
     return
   }

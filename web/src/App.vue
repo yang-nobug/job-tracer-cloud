@@ -35,8 +35,7 @@ const workspace = computed<'track' | 'learn'>(() => (route.path.startsWith('/lea
 function onWorkspaceChange(ws: string | number | boolean): void {
   const target = ws === 'learn' ? 'learn' : 'track'
   localStorage.setItem('workspace', target)
-  // 普通用户的学习区已先开放知识库；录音复盘仍依赖下一批工作区迁移。
-  router.push(target === 'learn' ? (authState.user?.isAdmin ? '/learn/reviews' : '/learn/knowledge') : '/track/kanban')
+  router.push(target === 'learn' ? '/learn/reviews' : '/track/kanban')
 }
 
 function onMoreCommand(command: string | number | object): void {
@@ -134,7 +133,7 @@ watch(() => authState.user?.userId, userId => {
             <router-link to="/track/stats" class="nav-link" :class="{ active: route.path === '/track/stats' }">统计</router-link>
           </template>
           <template v-else>
-            <router-link v-if="authState.user.isAdmin" to="/learn/reviews" class="nav-link" :class="{ active: route.path === '/learn/reviews' }">复盘</router-link>
+            <router-link to="/learn/reviews" class="nav-link" :class="{ active: route.path === '/learn/reviews' }">复盘</router-link>
             <router-link to="/learn/knowledge" class="nav-link" :class="{ active: route.path.startsWith('/learn/knowledge') }">学习</router-link>
           </template>
         </nav>
@@ -150,13 +149,13 @@ watch(() => authState.user?.userId, userId => {
           </el-dropdown>
           <el-button class="utility-button" text @click="store.resumeLibraryOpen = true">简历</el-button>
           <el-button class="utility-button" text @click="mailSettingsOpen = true">日程</el-button>
-          <el-dropdown v-if="authState.user.isAdmin" trigger="click" @command="onMoreCommand">
+          <el-dropdown trigger="click" @command="onMoreCommand">
             <el-button class="utility-button" text>更多 <span class="more-caret">⌄</span></el-button>
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item v-if="workspace === 'learn'" command="project">项目档案</el-dropdown-item>
-                <el-dropdown-item command="observability">运行与日志</el-dropdown-item>
-                <el-dropdown-item command="privacy">AI 数据说明</el-dropdown-item>
+                <el-dropdown-item v-if="authState.user.isAdmin" command="observability">运行与日志</el-dropdown-item>
+                <el-dropdown-item v-if="authState.user.isAdmin" command="privacy">AI 数据说明</el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
@@ -169,7 +168,7 @@ watch(() => authState.user?.userId, userId => {
 
     <main class="main" :class="{ 'main-learn': workspace === 'learn' }">
       <div class="main-content">
-        <router-view v-if="workspace === 'track' || route.path.startsWith('/learn/knowledge') || authState.user.isAdmin" />
+        <router-view v-if="workspace === 'track' || route.path.startsWith('/learn/knowledge') || route.path.startsWith('/learn/reviews') || authState.user.isAdmin" />
         <section v-else class="module-migration-note">
           <p class="page-kicker">WORKSPACE MIGRATION</p>
           <h2>学习与 AI 工具正在迁移</h2>
@@ -178,7 +177,7 @@ watch(() => authState.user?.userId, userId => {
         </section>
       </div>
       <!-- 学习区右侧常驻 AI 助教栏：随路由切换不销毁，切到投递区隐藏但保留对话 -->
-      <TutorPanel v-show="workspace === 'learn' && authState.user.isAdmin" />
+      <TutorPanel v-show="workspace === 'learn'" />
     </main>
 
     <AppFormDrawer v-model="store.formDrawerOpen" :editing="store.editingApp" />

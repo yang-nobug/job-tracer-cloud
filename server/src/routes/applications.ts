@@ -113,7 +113,9 @@ applicationsRouter.get('/:id', async (req: Request, res: Response) => {
   if (!app) return res.status(404).json({ message: '记录不存在' })
   const sql = getPostgresSql()
   const events = await sql.unsafe('SELECT id, application_id, type, event_date, content, created_at FROM application_events WHERE workspace_id=$1 AND application_id=$2 ORDER BY event_date DESC,id DESC', [workspaceId, id])
-  const interviews = await sql.unsafe('SELECT id, application_id, round, scheduled_at, location, review_file, done::integer AS done, created_at FROM interviews WHERE workspace_id=$1 AND application_id=$2 ORDER BY scheduled_at DESC', [workspaceId, id]) as Array<Record<string, unknown> & { id: number }>
+  const interviews = await sql.unsafe(`SELECT i.id,i.application_id,i.round,i.scheduled_at,i.location,
+    CASE WHEN EXISTS (SELECT 1 FROM workspace_interview_reviews r WHERE r.workspace_id=i.workspace_id AND r.interview_id=i.id) THEN 'cloud-review' ELSE NULL END AS review_file,
+    i.done::integer AS done,i.created_at FROM interviews i WHERE i.workspace_id=$1 AND i.application_id=$2 ORDER BY i.scheduled_at DESC`, [workspaceId, id]) as Array<Record<string, unknown> & { id: number }>
   for (const interview of interviews) {
     interview.checklist = await sql.unsafe('SELECT id, interview_id, content, done::integer AS done, sort FROM checklist_items WHERE workspace_id=$1 AND interview_id=$2 ORDER BY sort,id', [workspaceId, interview.id])
   }

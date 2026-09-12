@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { randomUUID } from 'node:crypto'
 import { db, now } from './db.js'
+import { getPostgresSql } from './database/client.js'
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 export type OperationStatus = 'queued' | 'running' | 'succeeded' | 'partial_success' | 'failed' | 'cancelled'
@@ -139,23 +140,55 @@ export function logApp(input: {
   errorStack?: string
   context?: unknown
 }): void {
+  const active = currentTrace()
+  const record = {
+    level: input.level,
+    source: input.source.slice(0, 80),
+    eventName: input.eventName.slice(0, 120),
+    traceId: input.traceId ?? active?.traceId ?? null,
+    operationRunId: input.operationRunId ?? active?.operationRunId ?? null,
+    operationStepId: input.operationStepId ?? active?.operationStepId ?? null,
+    entityType: input.entityType?.slice(0, 100) ?? null,
+    entityId: input.entityId == null ? null : String(input.entityId).slice(0, 200),
+    message: input.message.slice(0, 2_000),
+    contextJson: json(input.context),
+    errorCode: input.errorCode?.slice(0, 120) ?? null,
+    errorStack: process.env.NODE_ENV === 'development' ? input.errorStack?.slice(0, 8_000) ?? null : null
+  }
+  // 调用方大多在请求结束或错误路径中，日志故意不 await，避免数据库短暂故障拖垮业务。
+  void writePlatformLog(record)
+}
+
+let lastPlatformLogFailureAt = 0
+let successfulPlatformLogWrites = 0
+
+async function writePlatformLog(record: {
+  level: LogLevel; source: string; eventName: string; traceId: string | null; operationRunId: number | null; operationStepId: number | null
+  entityType: string | null; entityId: string | null; message: string; contextJson: string | null; errorCode: string | null; errorStack: string | null
+}): Promise<void> {
   try {
-    const active = currentTrace()
-    db.prepare(`INSERT INTO app_logs(
-      level,source,event_name,trace_id,operation_run_id,operation_step_id,entity_type,entity_id,message,context_json,error_code,error_stack,created_at
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
-      input.level, input.source.slice(0, 80), input.eventName.slice(0, 120), input.traceId ?? active?.traceId ?? null,
-      input.operationRunId ?? active?.operationRunId ?? null, input.operationStepId ?? active?.operationStepId ?? null,
-      input.entityType ?? null, input.entityId == null ? null : String(input.entityId), input.message.slice(0, 2_000),
-      json(input.context), input.errorCode ?? null, process.env.NODE_ENV === 'development' ? input.errorStack?.slice(0, 8_000) ?? null : null, now()
-    )
-    db.prepare(`DELETE FROM app_logs WHERE id NOT IN (SELECT id FROM app_logs ORDER BY id DESC LIMIT 20000)
-      AND level IN ('debug','info')`).run()
-    db.prepare(`DELETE FROM app_logs WHERE id NOT IN (SELECT id FROM app_logs WHERE level IN ('warn','error') ORDER BY id DESC LIMIT 10000)
-      AND level IN ('warn','error')`).run()
+    const sql = getPostgresSql()
+    await sql.unsafe(`INSERT INTO platform_system_logs(level,source,event_name,trace_id,operation_run_id,operation_step_id,entity_type,entity_id,message,context_json,error_code,error_stack)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, [
+      record.level, record.source, record.eventName, record.traceId, record.operationRunId, record.operationStepId,
+      record.entityType, record.entityId, record.message, record.contextJson, record.errorCode, record.errorStack
+    ])
+    successfulPlatformLogWrites += 1
+    // 请求日志频繁，避免每一条都额外执行两次 DELETE；每 100 条维护一次上限。
+    if (successfulPlatformLogWrites % 100 === 0) {
+      await sql.unsafe(`DELETE FROM platform_system_logs WHERE id NOT IN (
+        SELECT id FROM platform_system_logs WHERE level IN ('debug','info') ORDER BY id DESC LIMIT 20000
+      ) AND level IN ('debug','info')`)
+      await sql.unsafe(`DELETE FROM platform_system_logs WHERE id NOT IN (
+        SELECT id FROM platform_system_logs WHERE level IN ('warn','error') ORDER BY id DESC LIMIT 10000
+      ) AND level IN ('warn','error')`)
+    }
   } catch (error) {
-    // 日志系统绝不能反过来影响业务路径。
-    console.error('[observability] 日志写入失败:', (error as Error).message)
+    // 日志通道绝不能反过来影响业务；失败只做节流后的 stderr 告警。
+    if (Date.now() - lastPlatformLogFailureAt >= 60_000) {
+      lastPlatformLogFailureAt = Date.now()
+      console.error('[observability] PostgreSQL 日志写入失败:', (error as Error).message)
+    }
   }
 }
 

@@ -23,13 +23,14 @@ function workspaceImagePath(workspaceId: string, name: string): string {
 }
 
 cloudKnowledgeAiRouter.post('/ai/knowledge/extract-text', async (req: Request, res: Response) => {
+  const workspaceId = requireWorkspaceId(req)
   const text = typeof req.body?.text === 'string' ? req.body.text.trim() : ''
   if (!text) return res.status(422).json({ message: 'text 不能为空' })
   try {
     const { value } = await completeStructured([
       { role: 'system', content: `${loadPrompt('knowledge-extract.system.md')}\n\nJSON Schema:\n${JSON.stringify(KNOWLEDGE_EXTRACTION_SCHEMA)}` },
       { role: 'user', content: `<untrusted_interview_material>\n${text.slice(0, EXTRACT_MAX_TEXT)}\n</untrusted_interview_material>` }
-    ], { task: 'knowledgeExtract', schemaName: 'knowledge_extraction', schema: KNOWLEDGE_EXTRACTION_SCHEMA, validate: validateKnowledgeExtraction, skipAudit: true })
+    ], { task: 'knowledgeExtract', schemaName: 'knowledge_extraction', schema: KNOWLEDGE_EXTRACTION_SCHEMA, validate: validateKnowledgeExtraction, skipAudit: true, workspaceId })
     res.json(value)
   } catch (error) { sendAiError(res, error) }
 })
@@ -48,7 +49,7 @@ cloudKnowledgeAiRouter.post('/ai/knowledge/extract-image', async (req: Request, 
     const { value } = await completeStructured([
       { role: 'system', content: `${loadPrompt('knowledge-extract.system.md')}\n\nJSON Schema:\n${JSON.stringify(KNOWLEDGE_EXTRACTION_SCHEMA)}` },
       { role: 'user', content }
-    ], { task: 'knowledgeExtract', model, schemaName: 'knowledge_extraction', schema: KNOWLEDGE_EXTRACTION_SCHEMA, validate: validateKnowledgeExtraction, skipAudit: true })
+    ], { task: 'knowledgeExtract', model, schemaName: 'knowledge_extraction', schema: KNOWLEDGE_EXTRACTION_SCHEMA, validate: validateKnowledgeExtraction, skipAudit: true, workspaceId })
     res.json(value)
   } catch (error) { sendAiError(res, error) }
 })
@@ -73,7 +74,7 @@ cloudKnowledgeAiRouter.post('/ai/knowledge/generate-answers', async (req: Reques
     const { value, completion } = await completeStructured([
       { role: 'system', content: `${loadPrompt('knowledge-answer.system.md')}\n\nJSON Schema:\n${JSON.stringify(ANSWER_GENERATION_SCHEMA)}` },
       { role: 'user', content: `<untrusted_questions>\n${JSON.stringify(questionList)}\n</untrusted_questions>` }
-    ], { task: 'answerGenerate', schemaName: 'knowledge_answers', schema: ANSWER_GENERATION_SCHEMA, validate: result => validateAnswerGeneration(result, todo.map(item => item.id)), skipAudit: true })
+    ], { task: 'answerGenerate', schemaName: 'knowledge_answers', schema: ANSWER_GENERATION_SCHEMA, validate: result => validateAnswerGeneration(result, todo.map(item => item.id)), skipAudit: true, workspaceId })
     const answers = new Map(value.answers.map(answer => [answer.id, answer.answer]))
     const refreshed = await sql.begin(async transaction => {
       for (const item of todo) {

@@ -31,6 +31,36 @@ export const users = pgTable('users', {
   uniqueIndex('users_email_normalized_unique').on(table.emailNormalized)
 ])
 
+/** 平台共用的非机密 AI 偏好；密钥与模型清单仍只由服务器 config.json 管理。 */
+export const platformAiSettings = pgTable('platform_ai_settings', {
+  key: varchar('key', { length: 100 }).primaryKey(),
+  value: text('value').notNull(),
+  updatedByUserId: uuid('updated_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+})
+
+/** 平台运维日志，不含工作区业务正文；仅平台管理员可查看和清理。 */
+export const platformSystemLogs = pgTable('platform_system_logs', {
+  id: serial('id').primaryKey(),
+  level: varchar('level', { length: 12 }).notNull(),
+  source: varchar('source', { length: 80 }).notNull(),
+  eventName: varchar('event_name', { length: 120 }).notNull(),
+  traceId: varchar('trace_id', { length: 100 }),
+  operationRunId: integer('operation_run_id'),
+  operationStepId: integer('operation_step_id'),
+  entityType: varchar('entity_type', { length: 100 }),
+  entityId: varchar('entity_id', { length: 200 }),
+  message: text('message').notNull(),
+  contextJson: text('context_json'),
+  errorCode: varchar('error_code', { length: 120 }),
+  errorStack: text('error_stack'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+}, table => [
+  index('platform_system_logs_created_idx').on(table.id),
+  index('platform_system_logs_trace_idx').on(table.traceId, table.id),
+  index('platform_system_logs_error_idx').on(table.level, table.errorCode, table.id)
+])
+
 export const workspaces = pgTable('workspaces', {
   id: uuid('id').defaultRandom().primaryKey(),
   name: varchar('name', { length: 100 }).notNull(),
@@ -209,6 +239,82 @@ export const knowledgeAnswerVersions = pgTable('knowledge_answer_versions', {
   index('knowledge_answer_versions_workspace_item_idx').on(table.workspaceId, table.knowledgeItemId, table.id)
 ])
 
+/** AI 助教会话及其引用、反馈。会话内容与检索结果均只属于一个工作区。 */
+export const workspaceTutorSessions = pgTable('workspace_tutor_sessions', {
+  id: serial('id').primaryKey(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  title: varchar('title', { length: 80 }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+}, table => [
+  index('workspace_tutor_sessions_workspace_updated_idx').on(table.workspaceId, table.updatedAt)
+])
+
+export const workspaceTutorMessages = pgTable('workspace_tutor_messages', {
+  id: serial('id').primaryKey(),
+  sessionId: integer('session_id').notNull().references(() => workspaceTutorSessions.id, { onDelete: 'cascade' }),
+  role: varchar('role', { length: 16 }).notNull(),
+  content: text('content').notNull(),
+  requestId: varchar('request_id', { length: 100 }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+}, table => [
+  uniqueIndex('workspace_tutor_messages_request_unique').on(table.sessionId, table.role, table.requestId),
+  index('workspace_tutor_messages_session_created_idx').on(table.sessionId, table.createdAt, table.id)
+])
+
+export const workspaceTutorMessageCitations = pgTable('workspace_tutor_message_citations', {
+  messageId: integer('message_id').notNull().references(() => workspaceTutorMessages.id, { onDelete: 'cascade' }),
+  knowledgeItemId: integer('knowledge_item_id').notNull().references(() => knowledgeItems.id, { onDelete: 'cascade' }),
+  citationKey: varchar('citation_key', { length: 16 }).notNull(),
+  rank: integer('rank').notNull(),
+  score: integer('score').notNull().default(0)
+}, table => [
+  primaryKey({ columns: [table.messageId, table.knowledgeItemId], name: 'workspace_tutor_message_citations_pkey' }),
+  index('workspace_tutor_message_citations_item_idx').on(table.knowledgeItemId)
+])
+
+export const workspaceTutorMessageFeedback = pgTable('workspace_tutor_message_feedback', {
+  messageId: integer('message_id').primaryKey().references(() => workspaceTutorMessages.id, { onDelete: 'cascade' }),
+  value: integer('value').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+})
+
+/** 云端项目档案只引用用户主动上传的 ZIP；源码索引不包含服务器任意目录路径。 */
+export const workspaceProjectProfiles = pgTable('workspace_project_profiles', {
+  id: serial('id').primaryKey(), workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 200 }).notNull(), description: text('description').notNull().default(''),
+  archiveFilename: text('archive_filename').notNull(), archiveStoredName: varchar('archive_stored_name', { length: 160 }).notNull(),
+  status: varchar('status', { length: 20 }).notNull().default('ready'), scanScopesJson: text('scan_scopes_json').notNull().default('["."]'),
+  filesSeen: integer('files_seen').notNull().default(0), filesIndexed: integer('files_indexed').notNull().default(0), bytesRead: integer('bytes_read').notNull().default(0), truncated: boolean('truncated').notNull().default(false), skippedJson: text('skipped_json').notNull().default('{}'), scannedAt: timestamp('scanned_at', { withTimezone: true }), createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+}, table => [uniqueIndex('workspace_project_profiles_archive_unique').on(table.workspaceId, table.archiveStoredName), index('workspace_project_profiles_workspace_updated_idx').on(table.workspaceId, table.updatedAt)])
+
+export const workspaceProjectFiles = pgTable('workspace_project_files', {
+  id: serial('id').primaryKey(), projectId: integer('project_id').notNull().references(() => workspaceProjectProfiles.id, { onDelete: 'cascade' }), relativePath: text('relative_path').notNull(), language: varchar('language', { length: 32 }).notNull(), sizeBytes: integer('size_bytes').notNull(), lineCount: integer('line_count').notNull(), contentHash: varchar('content_hash', { length: 64 }).notNull(), indexedAt: timestamp('indexed_at', { withTimezone: true }).notNull().defaultNow()
+}, table => [uniqueIndex('workspace_project_files_path_unique').on(table.projectId, table.relativePath), index('workspace_project_files_project_path_idx').on(table.projectId, table.relativePath)])
+
+export const workspaceProjectChunks = pgTable('workspace_project_chunks', {
+  id: serial('id').primaryKey(), projectId: integer('project_id').notNull().references(() => workspaceProjectProfiles.id, { onDelete: 'cascade' }), fileId: integer('file_id').notNull().references(() => workspaceProjectFiles.id, { onDelete: 'cascade' }), startLine: integer('start_line').notNull(), endLine: integer('end_line').notNull(), content: text('content').notNull(), contentHash: varchar('content_hash', { length: 64 }).notNull()
+}, table => [index('workspace_project_chunks_project_file_idx').on(table.projectId, table.fileId)])
+
+export const workspaceProjectFacts = pgTable('workspace_project_facts', {
+  id: serial('id').primaryKey(), projectId: integer('project_id').notNull().references(() => workspaceProjectProfiles.id, { onDelete: 'cascade' }), factType: varchar('fact_type', { length: 40 }).notNull(), title: varchar('title', { length: 300 }).notNull(), content: text('content').notNull(), evidenceChunkIdsJson: text('evidence_chunk_ids_json').notNull().default('[]'), createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+}, table => [index('workspace_project_facts_project_idx').on(table.projectId, table.id)])
+
+/** 代码理解 Agent 只读取 workspace_project_chunks 中已过滤的索引。 */
+export const workspaceCodeReadingSessions = pgTable('workspace_code_reading_sessions', {
+  id: uuid('id').defaultRandom().primaryKey(), workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }), projectId: integer('project_id').notNull().references(() => workspaceProjectProfiles.id, { onDelete: 'cascade' }), question: text('question').notNull(), outputMode: varchar('output_mode', { length: 24 }).notNull(), status: varchar('status', { length: 20 }).notNull().default('queued'), model: varchar('model', { length: 200 }), toolCallsUsed: integer('tool_calls_used').notNull().default(0), bytesRead: integer('bytes_read').notNull().default(0), maxToolCalls: integer('max_tool_calls').notNull().default(8), maxBytesRead: integer('max_bytes_read').notNull().default(163840), finalJson: text('final_json'), errorMessage: text('error_message'), createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), finishedAt: timestamp('finished_at', { withTimezone: true })
+}, table => [index('workspace_code_reading_sessions_project_created_idx').on(table.workspaceId, table.projectId, table.createdAt)])
+export const workspaceCodeReadingSteps = pgTable('workspace_code_reading_steps', { id: serial('id').primaryKey(), sessionId: uuid('session_id').notNull().references(() => workspaceCodeReadingSessions.id, { onDelete: 'cascade' }), sequence: integer('sequence').notNull(), kind: varchar('kind', { length: 16 }).notNull(), toolName: varchar('tool_name', { length: 40 }), status: varchar('status', { length: 16 }).notNull(), errorMessage: text('error_message'), createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow() }, table => [index('workspace_code_reading_steps_session_idx').on(table.sessionId, table.sequence)])
+export const workspaceCodeReadingEvidence = pgTable('workspace_code_reading_evidence', { id: serial('id').primaryKey(), sessionId: uuid('session_id').notNull().references(() => workspaceCodeReadingSessions.id, { onDelete: 'cascade' }), evidenceRef: varchar('evidence_ref', { length: 20 }).notNull(), relativePath: text('relative_path').notNull(), startLine: integer('start_line').notNull(), endLine: integer('end_line').notNull(), excerpt: text('excerpt').notNull() }, table => [uniqueIndex('workspace_code_reading_evidence_ref_unique').on(table.sessionId, table.evidenceRef), index('workspace_code_reading_evidence_session_idx').on(table.sessionId, table.id)])
+
+/** 每一次云端模型调用的脱敏审计。内容只属于本工作区，图片仅保留哈希而非原始 Base64。 */
+export const workspaceAiCallRecords = pgTable('workspace_ai_call_records', {
+  id: serial('id').primaryKey(), workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  task: varchar('task', { length: 80 }).notNull(), stage: varchar('stage', { length: 120 }).notNull(), attempt: integer('attempt').notNull().default(1), retryOfCallId: integer('retry_of_call_id'), model: varchar('model', { length: 200 }), promptHash: varchar('prompt_hash', { length: 64 }).notNull(), providerRequestId: varchar('provider_request_id', { length: 200 }),
+  requestMessagesJson: text('request_messages_json').notNull(), responseSchemaJson: text('response_schema_json'), requestOptionsJson: text('request_options_json'), rawResponse: text('raw_response'), parsedResponseJson: text('parsed_response_json'), validatedResponseJson: text('validated_response_json'), status: varchar('status', { length: 32 }).notNull(), errorType: varchar('error_type', { length: 80 }), errorMessage: text('error_message'), durationMs: integer('duration_ms').notNull(), finishReason: varchar('finish_reason', { length: 80 }), promptTokens: integer('prompt_tokens'), completionTokens: integer('completion_tokens'), totalTokens: integer('total_tokens'), providerAttempts: integer('provider_attempts'), createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(), finishedAt: timestamp('finished_at', { withTimezone: true }).notNull().defaultNow()
+}, table => [index('workspace_ai_call_records_workspace_created_idx').on(table.workspaceId, table.createdAt), index('workspace_ai_call_records_workspace_task_idx').on(table.workspaceId, table.task, table.createdAt)])
+
 /** 招聘智能录入的可核对草稿。未保存的草稿会过期；原材料始终属于单一工作区。 */
 export const applicationImports = pgTable('application_imports', {
   id: uuid('id').primaryKey(),
@@ -308,6 +414,28 @@ export const checklistItems = pgTable('checklist_items', {
 }, table => [
   index('checklist_items_workspace_interview_idx').on(table.workspaceId, table.interviewId, table.sort)
 ])
+
+/** 复盘正文属于工作区数据库，避免以服务器共享 Markdown 文件作为用户数据源。 */
+export const workspaceInterviewReviews = pgTable('workspace_interview_reviews', {
+  id: serial('id').primaryKey(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  interviewId: integer('interview_id').notNull().references(() => interviews.id, { onDelete: 'cascade' }),
+  content: text('content').notNull(),
+  source: varchar('source', { length: 24 }).notNull().default('manual'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+}, table => [
+  uniqueIndex('workspace_interview_reviews_interview_unique').on(table.interviewId),
+  index('workspace_interview_reviews_workspace_updated_idx').on(table.workspaceId, table.updatedAt)
+])
+
+export const workspaceRecordings = pgTable('workspace_recordings', {
+  id: serial('id').primaryKey(), workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }), interviewId: integer('interview_id').notNull().references(() => interviews.id, { onDelete: 'cascade' }), filename: text('filename').notNull(), storedName: varchar('stored_name', { length: 160 }).notNull(), size: integer('size').notNull(), status: varchar('status', { length: 24 }).notNull().default('uploading'), transcript: text('transcript'), knowledgeSourceId: integer('knowledge_source_id').references(() => knowledgeSources.id, { onDelete: 'set null' }), analysisJson: text('analysis_json'), analysisStage: varchar('analysis_stage', { length: 80 }).notNull().default('uploading'), attempts: integer('attempts').notNull().default(0), error: text('error'), createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+}, table => [uniqueIndex('workspace_recordings_stored_name_unique').on(table.workspaceId, table.storedName), index('workspace_recordings_workspace_created_idx').on(table.workspaceId, table.createdAt), index('workspace_recordings_workspace_interview_idx').on(table.workspaceId, table.interviewId)])
+
+export const workspaceRecordingAnalysisChunks = pgTable('workspace_recording_analysis_chunks', {
+  recordingId: integer('recording_id').notNull().references(() => workspaceRecordings.id, { onDelete: 'cascade' }), chunkIndex: integer('chunk_index').notNull(), startOffset: integer('start_offset').notNull(), endOffset: integer('end_offset').notNull(), status: varchar('status', { length: 16 }).notNull().default('pending'), resultJson: text('result_json'), error: text('error'), attempts: integer('attempts').notNull().default(0), updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+}, table => [primaryKey({ columns: [table.recordingId, table.chunkIndex], name: 'workspace_recording_analysis_chunks_pkey' })])
 
 /** 面试准备 Agent 的中间分析、运行步骤和确认后的计划均独立于旧 SQLite。 */
 export const workspacePrepAgentRuns = pgTable('workspace_prep_agent_runs', {

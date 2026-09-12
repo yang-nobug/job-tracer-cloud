@@ -9,7 +9,8 @@ const open = defineModel<boolean>({ default: false })
 const projects = ref<ProjectArchiveSummary[]>([])
 const loading = ref(false)
 const creating = ref(false)
-const sourcePath = ref('')
+const archiveFile = ref<File | null>(null)
+const archiveInput = ref<HTMLInputElement | null>(null)
 const name = ref('')
 const description = ref('')
 const activeId = ref<number | null>(null)
@@ -54,14 +55,19 @@ async function createFact(): Promise<void> {
   } catch (error) { ElMessage.error((error as Error).message) } finally { factSaving.value = false }
 }
 async function create(): Promise<void> {
-  if (!sourcePath.value.trim()) { ElMessage.warning('请填写本机项目根目录'); return }
+  if (!archiveFile.value) { ElMessage.warning('请选择项目 ZIP 压缩包'); return }
   creating.value = true
   try {
-    const detail = await api.post<{ project: ProjectArchiveSummary }>('/projects', { source_path: sourcePath.value, name: name.value, description: description.value })
-    sourcePath.value = ''; name.value = ''; description.value = ''
+    const detail = await api.uploadProjectArchive(archiveFile.value, name.value, description.value) as { project: ProjectArchiveSummary }
+    archiveFile.value = null; if (archiveInput.value) archiveInput.value.value = ''; name.value = ''; description.value = ''
     await loadProjects(); await selectProject(detail.project.id)
     ElMessage.success('项目档案已建立；请点击“建立只读索引”扫描代码')
   } catch (error) { ElMessage.error((error as Error).message) } finally { creating.value = false }
+}
+function pickArchive(event: Event): void {
+  const file = (event.target as HTMLInputElement).files?.[0] ?? null
+  if (file && !file.name.toLowerCase().endsWith('.zip')) { ElMessage.warning('请选择 ZIP 格式的项目压缩包'); archiveFile.value = null; return }
+  archiveFile.value = file
 }
 async function scan(): Promise<void> {
   if (!activeId.value) return
@@ -102,20 +108,20 @@ watch(open, value => { if (value) void loadProjects() })
     </template>
 
     <section class="archive-notice">
-      <div><strong>代码仓库不会被修改</strong><p>不会写入缓存、配置或 Git 文件；索引和确认事实仅保存在 job-tracer。</p></div>
+        <div><strong>代码仓库不会被修改</strong><p>上传 ZIP 后仅建立私有只读索引；会跳过密钥、依赖目录和二进制文件。</p></div>
       <el-button plain @click="showCreate = !showCreate">{{ showCreate ? '收起接入表单' : '接入新项目' }}</el-button>
     </section>
 
     <el-collapse-transition>
       <section v-show="showCreate" class="project-create">
-        <div class="create-heading"><div><h3>接入本机项目</h3><p>填写项目根目录后，系统只会建立独立索引。</p></div></div>
+        <div class="create-heading"><div><h3>接入项目压缩包</h3><p>从项目根目录压缩为 ZIP 上传；不会读取你的电脑路径。</p></div></div>
         <el-form label-position="top">
           <div class="form-grid">
-            <el-form-item label="本机项目根目录"><el-input v-model="sourcePath" placeholder="例如 F:\\my-project" /></el-form-item>
+            <el-form-item label="项目 ZIP 压缩包"><input ref="archiveInput" type="file" accept=".zip,application/zip" @change="pickArchive" /><small v-if="archiveFile">已选择：{{ archiveFile.name }}</small></el-form-item>
             <el-form-item label="项目名称（可选）"><el-input v-model="name" placeholder="默认使用目录名" /></el-form-item>
           </div>
           <el-form-item label="项目说明（可选）"><el-input v-model="description" type="textarea" :rows="2" maxlength="2000" show-word-limit placeholder="用自己的话说明项目目标、职责或想重点准备的内容" /></el-form-item>
-          <div class="create-actions"><span>接入后再单独发起“建立只读索引”扫描。</span><el-button type="primary" :loading="creating" @click="create">接入项目档案</el-button></div>
+          <div class="create-actions"><span>单个 ZIP 最多 100 MB；接入后再单独发起“建立只读索引”扫描。</span><el-button type="primary" :loading="creating" @click="create">接入项目档案</el-button></div>
         </el-form>
       </section>
     </el-collapse-transition>

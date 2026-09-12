@@ -127,7 +127,7 @@ async function submit(): Promise<void> {
     <el-alert
       type="info"
       :closable="false"
-      title="录音会临时上传到配置的私有 OSS，供语音识别服务读取，转写结束后立即尝试删除；转写文本随后发送至火山方舟生成复盘。录音和转写会保留在本机。"
+      title="录音会临时上传到配置的私有 OSS，供语音识别服务读取，转写结束后立即尝试删除；转写文本随后发送至模型生成复盘。录音和转写只保存在你的云端私有工作区。"
     />
     <template #footer>
       <el-button @click="visible = false">取消</el-button>

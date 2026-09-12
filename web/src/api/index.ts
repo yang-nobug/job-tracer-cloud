@@ -63,6 +63,19 @@ export const api = {
     })
   },
 
+  /** 上传项目 ZIP；服务端仅在当前工作区建立私有、只读索引。 */
+  uploadProjectArchive: (archive: File, name?: string, description?: string) => {
+    const form = new FormData()
+    form.append('archive', archive)
+    if (name) form.append('name', name)
+    if (description) form.append('description', description)
+    return fetch(`${BASE}/projects`, { method: 'POST', body: form, credentials: 'same-origin' }).then(async (res) => {
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error((body as { message?: string }).message || '上传失败')
+      return body as { project: unknown }
+    })
+  },
+
   /** 上传本地 data 目录压缩包，导入到当前登录账号自己的工作区。 */
   importLocalData: (archive: File) => {
     const form = new FormData()

@@ -2,7 +2,6 @@ import { Router } from 'express'
 import type { Request, Response } from 'express'
 import { getPostgresSql } from '../database/client.js'
 import { localDate, parsePositiveId, requireWorkspaceId } from '../auth/workspace.js'
-import { deleteReviewFile, readReviewFile, writeReviewFile } from '../review-file.js'
 import { STATUS_LABELS, type Status } from '../types.js'
 import { canAutomaticallyAdvanceStatus } from '../status-transition.js'
 
@@ -73,42 +72,7 @@ interviewsRouter.delete('/interviews/:id', async (req: Request, res: Response) =
   const interview = await ownedInterview(workspaceId, id)
   if (!interview) return res.status(404).json({ message: '面试不存在' })
   await getPostgresSql().unsafe('DELETE FROM interviews WHERE workspace_id=$1 AND id=$2', [workspaceId, id])
-  let reviewFileRemoved = false
-  if (interview.review_file) {
-    const rows = await getPostgresSql().unsafe('SELECT COUNT(*)::integer AS count FROM interviews WHERE workspace_id=$1 AND review_file=$2', [workspaceId, interview.review_file]) as Array<{ count: number }>
-    if (rows[0]?.count === 0) {
-      try { reviewFileRemoved = deleteReviewFile(interview.review_file) } catch (error) { console.warn(`[reviews] 删除复盘文件失败：${(error as Error).message}`) }
-    }
-  }
-  res.json({ ok: true, review_file_removed: reviewFileRemoved })
-})
-
-interviewsRouter.get('/interviews/:id/review', async (req: Request, res: Response) => {
-  const workspaceId = requireWorkspaceId(req); const id = parsePositiveId(req.params.id, '面试编号')
-  if (!id) return res.status(404).json({ message: '面试不存在' })
-  const interview = await ownedInterview(workspaceId, id)
-  if (!interview) return res.status(404).json({ message: '面试不存在' })
-  res.json({ content: interview.review_file ? readReviewFile(interview.review_file) : '' })
-})
-
-interviewsRouter.put('/interviews/:id/review', async (req: Request, res: Response) => {
-  const workspaceId = requireWorkspaceId(req); const id = parsePositiveId(req.params.id, '面试编号')
-  if (!id) return res.status(404).json({ message: '面试不存在' })
-  const interview = await ownedInterview(workspaceId, id)
-  if (!interview) return res.status(404).json({ message: '面试不存在' })
-  if (typeof req.body?.content !== 'string') return res.status(422).json({ message: 'content 不能为空' })
-  if (!interview.review_file) return res.status(409).json({ message: '该场面试尚未通过录音生成复盘' })
-  writeReviewFile(interview.review_file, req.body.content)
   res.json({ ok: true })
-})
-
-interviewsRouter.get('/reviews', async (req: Request, res: Response) => {
-  const workspaceId = requireWorkspaceId(req)
-  const rows = await getPostgresSql().unsafe(
-    `SELECT i.id,i.round,i.scheduled_at,i.done::integer AS done,i.review_file,a.id AS application_id,a.company,a.position
-     FROM interviews i JOIN applications a ON a.id=i.application_id AND a.workspace_id=i.workspace_id WHERE i.workspace_id=$1 ORDER BY i.scheduled_at DESC`, [workspaceId]
-  )
-  res.json(rows)
 })
 
 interviewsRouter.post('/interviews/:id/checklist', async (req: Request, res: Response) => {

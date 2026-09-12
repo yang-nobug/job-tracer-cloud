@@ -14,10 +14,7 @@ const draft = ref('')
 const loading = ref(true)
 const saving = ref(false)
 
-const title = computed(() => {
-  const label = props.interview.review_file || '复盘'
-  return `📝 ${label}`
-})
+const title = computed(() => '📝 面试复盘')
 
 onMounted(async () => {
   try {
@@ -50,12 +47,12 @@ async function save(): Promise<void> {
   }
 }
 
-async function reloadFromDisk(): Promise<void> {
+async function reloadFromCloud(): Promise<void> {
   try {
     const r = await api.get<{ content: string }>(`/interviews/${props.interview.id}/review`)
     content.value = r.content
     draft.value = r.content
-    ElMessage.success('已从磁盘刷新')
+    ElMessage.success('已从云端刷新')
   } catch (err) {
     ElMessage.error((err as Error).message)
   }
@@ -112,12 +109,12 @@ function onClose(): void {
     </div>
     <template #footer>
       <div class="footer-bar">
-        <span class="hint">也可以直接用本地编辑器修改磁盘上的 md 文件</span>
+        <span class="hint">复盘内容保存在你的云端工作区中</span>
         <div>
           <el-button v-if="!editMode" size="small" type="warning" plain :loading="advising" @click="askAdvice">
             ✨ AI 点评
           </el-button>
-          <el-button v-if="!editMode" size="small" @click="reloadFromDisk">↻ 从磁盘刷新</el-button>
+          <el-button v-if="!editMode" size="small" @click="reloadFromCloud">↻ 从云端刷新</el-button>
           <el-button v-if="editMode" @click="editMode = false">取消编辑</el-button>
           <el-button v-if="!editMode" type="primary" @click="startEdit">编辑</el-button>
           <el-button v-else type="primary" :loading="saving" @click="save">保存</el-button>

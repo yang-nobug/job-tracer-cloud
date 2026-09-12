@@ -128,7 +128,7 @@ watch(() => props.modelValue, open => { if (open) void load() })
       <el-alert
         type="info"
         :closable="false"
-        title="所有开关保存在本机。关闭某项后，该任务会在发送数据前直接停止；手动录入、浏览和编辑等非 AI 功能仍可使用。"
+        title="功能开关由平台管理员维护。关闭某项后，该任务会在发送数据前直接停止；手动录入、浏览和编辑等非 AI 功能仍可使用。"
       />
 
       <h3>各功能会发送的数据</h3>
@@ -153,15 +153,15 @@ watch(() => props.modelValue, open => { if (open) void load() })
 
       <h3>录音复盘的额外流转</h3>
       <p class="explain">
-        原录音保存在本机，并临时上传到配置的私有 OSS，语音识别服务通过签名地址读取；正常转写结束后程序会立即尝试删除 OSS 对象。转写文本再发送至火山方舟。若进程异常退出，仍建议在 OSS 侧配置生命周期清理规则。
+        原录音保存在所属工作区的服务器私有目录，并临时上传到配置的私有 OSS，语音识别服务通过签名地址读取；正常转写结束后程序会立即尝试删除 OSS 对象。转写文本再发送至火山方舟。若进程异常退出，仍建议在 OSS 侧配置生命周期清理规则。
       </p>
       <div class="service-tags">
         <el-tag :type="recording.ossConfigured ? 'success' : 'info'">OSS {{ recording.ossConfigured ? '已配置' : '未配置' }}</el-tag>
         <el-tag :type="recording.asrConfigured ? 'success' : 'info'">ASR {{ recording.asrConfigured ? '已配置' : '未配置' }}</el-tag>
       </div>
 
-      <h3>本机 AI 调用审计</h3>
-      <p class="explain">保存每次调用的完整文字输入、模型原始输出、结构校验结果和重试关系，最多保留最近 5000 次。图片不会重复保存 Base64，只记录本地材料指纹；日志可能含招聘、复盘和邮件内容，请仅在本机查看。</p>
+      <h3>工作区 AI 调用审计</h3>
+      <p class="explain">保存每次调用的完整文字输入、模型原始输出、结构校验结果和重试关系；每个工作区最多保留最近 2000 次。图片不会重复保存 Base64，只记录材料指纹。日志可能含招聘、复盘和邮件内容，仅对所属工作区可见。</p>
       <el-table v-if="calls.length" :data="calls" size="small" max-height="250">
         <el-table-column label="时间" width="170">
           <template #default="scope">{{ formatTime(scope.row.created_at) }}</template>

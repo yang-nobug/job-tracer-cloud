@@ -2,8 +2,10 @@ import { existsSync, readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { db, getSetting, now, setSetting } from './db.js'
+import { db, now } from './db.js'
 import { currentTrace } from './observability.js'
+import { updateWorkspaceAiCall, writeWorkspaceAiCall } from './workspace-ai-audit.js'
+import { platformAiTaskEnabled, platformTutorModel, savePlatformAiTaskEnabled, savePlatformTutorModel } from './platform-ai-settings.js'
 
 // 火山方舟（OpenAI 兼容协议）配置与统一调用封装。
 // 配置文件：项目根目录 config.json（参考 config.example.json，已 gitignore）。
@@ -174,18 +176,15 @@ export interface ResolvedAiTask extends Required<Omit<ArkTaskConfig, 'maxImages'
   modelEntry: ArkModel
 }
 
-const TASK_ENABLED_PREFIX = 'ai_task_enabled:'
-
-/** 运行时开关优先于 config.json；未显式配置时默认启用。 */
+/** PostgreSQL 中的管理员开关优先；未设置时采用服务器 config.json 的默认值。 */
 export function isAiTaskEnabled(task: AiTask): boolean {
-  const saved = getSetting(`${TASK_ENABLED_PREFIX}${task}`)
-  if (saved === '0') return false
-  if (saved === '1') return true
+  const saved = platformAiTaskEnabled(task)
+  if (saved !== undefined) return saved
   return loadArkConfig()?.tasks[task]?.enabled !== false
 }
 
-export function setAiTaskEnabled(task: AiTask, enabled: boolean): void {
-  setSetting(`${TASK_ENABLED_PREFIX}${task}`, enabled ? '1' : '0')
+export async function setAiTaskEnabled(task: AiTask, enabled: boolean, userId: string): Promise<void> {
+  await savePlatformAiTaskEnabled(task, enabled, userId)
 }
 
 export function resolveAiTask(task: AiTask, overrides: ArkTaskConfig = {}): ResolvedAiTask | null {
@@ -217,19 +216,19 @@ export function resolveAiTask(task: AiTask, overrides: ArkTaskConfig = {}): Reso
   }
 }
 
-/** 助教对话用的模型：运行时选择 > tutor 任务配置 > 默认模型。 */
+/** 助教对话用的模型：平台管理员选择 > tutor 任务配置 > 默认模型。 */
 export function tutorModel(): string | null {
   const config = loadArkConfig()
   if (!config) return null
-  const saved = getSetting('tutor_model')
+  const saved = platformTutorModel()
   if (saved && config.models.some(model => model.id === saved)) return saved
   return resolveAiTask('tutor')?.model ?? config.defaultModel
 }
 
-export function setTutorModel(modelId: string): boolean {
+export async function setTutorModel(modelId: string, userId: string): Promise<boolean> {
   const config = loadArkConfig()
   if (!config || !config.models.some(model => model.id === modelId)) return false
-  setSetting('tutor_model', modelId)
+  await savePlatformTutorModel(modelId, userId)
   return true
 }
 
@@ -267,6 +266,8 @@ export interface AiCompletionResult {
   durationMs: number
   providerAttempts: number
   auditCallId?: number
+  /** 仅供结构化输出在写回工作区审计的解析/校验结果时使用。 */
+  auditWorkspaceId?: string
 }
 
 export class AiError extends Error {
@@ -282,6 +283,8 @@ export interface CompletionOptions extends ArkTaskConfig {
   audit?: { stage?: string; attempt?: number; retryOfCallId?: number }
   /** 云端工作区数据不能写入旧 SQLite 审计库；迁移中的模块改用自己的工作区日志。 */
   skipAudit?: boolean
+  /** 云端调用显式传入工作区后，审计写入 PostgreSQL，而不会碰旧 SQLite。 */
+  workspaceId?: string
 }
 
 interface ProviderMessage { content?: unknown }
@@ -605,7 +608,8 @@ async function requestCompletion(
       aiRunId, retryOfCallId: options.audit?.retryOfCallId, task, stage, attempt, model, promptHash,
       messages, options, result: response, status: 'succeeded', durationMs: Date.now() - started
     })
-    return { ...response, auditCallId: auditCallId ?? undefined }
+    const workspaceAuditCallId = options.workspaceId ? await writeWorkspaceAiCall({ workspaceId: options.workspaceId, task, stage, attempt, promptHash, messages, options, result: response, durationMs: Date.now() - started }) : null
+    return { ...response, auditCallId: workspaceAuditCallId ?? auditCallId ?? undefined, auditWorkspaceId: options.workspaceId }
   } catch (error) {
     const aiRunId = options.skipAudit ? null : writeAiRun({
       task,
@@ -619,6 +623,7 @@ async function requestCompletion(
       aiRunId, retryOfCallId: options.audit?.retryOfCallId, task, stage, attempt, model, promptHash,
       messages, options, status: 'provider_failed', error: error as Error, durationMs: Date.now() - started
     })
+    if (options.workspaceId) await writeWorkspaceAiCall({ workspaceId: options.workspaceId, task, stage, attempt, promptHash, messages, options, error: error as Error, durationMs: Date.now() - started })
     throw error
   }
 }
@@ -672,11 +677,13 @@ export async function completeStructured<T>(
     try {
       parsed = extractJson<unknown>(completion.content)
       const value = options.validate(parsed)
-      updateAiCallRecord(completion.auditCallId, { status: 'succeeded', parsed, validated: value })
+      if (completion.auditWorkspaceId) await updateWorkspaceAiCall(completion.auditCallId, completion.auditWorkspaceId, { status: 'succeeded', parsed, validated: value })
+      else updateAiCallRecord(completion.auditCallId, { status: 'succeeded', parsed, validated: value })
       return { value, completion, attempts: attempt }
     } catch (error) {
       lastError = error as Error
-      updateAiCallRecord(completion.auditCallId, { status: 'validation_failed', parsed, error: lastError })
+      if (completion.auditWorkspaceId) await updateWorkspaceAiCall(completion.auditCallId, completion.auditWorkspaceId, { status: 'validation_failed', parsed, error: lastError })
+      else updateAiCallRecord(completion.auditCallId, { status: 'validation_failed', parsed, error: lastError })
       retryOfCallId = completion.auditCallId
       if (attempt === 2) break
       const repair = options.repairInstruction?.(lastError)

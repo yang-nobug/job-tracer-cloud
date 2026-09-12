@@ -54,7 +54,9 @@ cloudPrepAgentRouter.get('/internal/prep-agent/runs/:id/context', asyncRoute(asy
 cloudPrepAgentRouter.post('/internal/prep-agent/search', asyncRoute(async (req, res) => { const run = await cloudPrepRun(null, runId(req.body?.run_id)); res.json({ evidence: await searchCloudPrepEvidence(run, req.body?.queries) }) }))
 cloudPrepAgentRouter.post('/internal/prep-agent/model', asyncRoute(async (req, res) => {
   const kind = req.body?.kind as PrepModelKind; if (!(kind in PREP_MODEL_CONTRACTS)) throw new CloudPrepError('未知模型节点'); const contract = PREP_MODEL_CONTRACTS[kind]; const input = req.body?.input; const serialized = JSON.stringify(input ?? {}); if (serialized.length > 160_000) throw new CloudPrepError('模型节点输入过长')
-  const result = await completeStructured([{ role: 'system', content: `${loadPrompt(contract.prompt)}\n\nJSON Schema:\n${JSON.stringify(contract.schema)}` }, { role: 'user', content: `<untrusted_context_json>\n${serialized}\n</untrusted_context_json>` }], { task: 'interviewPrepAgent', schemaName: contract.schemaName, schema: contract.schema, validate: contract.validate as (value: unknown) => unknown })
+  // Python Agent 传回 run_id；据此恢复工作区，避免内部回调绕过审计隔离。
+  const run = await cloudPrepRun(null, runId(req.body?.run_id))
+  const result = await completeStructured([{ role: 'system', content: `${loadPrompt(contract.prompt)}\n\nJSON Schema:\n${JSON.stringify(contract.schema)}` }, { role: 'user', content: `<untrusted_context_json>\n${serialized}\n</untrusted_context_json>` }], { task: 'interviewPrepAgent', schemaName: contract.schemaName, schema: contract.schema, validate: contract.validate as (value: unknown) => unknown, skipAudit: true, workspaceId: run.workspace_id })
   res.json({ value: result.value, attempts: result.attempts, model: result.completion.model, usage: result.completion.usage, duration_ms: result.completion.durationMs })
 }))
 cloudPrepAgentRouter.post('/internal/prep-agent/runs/:id/steps', asyncRoute(async (req, res) => { const run = await cloudPrepRun(null, runId(req.params.id)); res.status(201).json({ id: await insertCloudPrepStep(run, req.body) }) }))

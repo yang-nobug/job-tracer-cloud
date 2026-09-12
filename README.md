@@ -1,94 +1,43 @@
 # Job Tracer Cloud
 
-Job Tracer 的云端协作版本，面向多用户的求职记录、面经知识库、面试准备与招聘日程管理。
+面向个人求职管理的云端版本。每个获批账号拥有独立工作区，投递、面试、面经、简历、招聘邮件、录音和项目档案互相隔离。
 
-> 当前状态：已完成 Ubuntu、Node.js、Nginx 和公网反向代理的部署链路验证。账号体系、工作空间隔离、PostgreSQL、对象存储与正式生产部署仍在开发中。当前测试实例不能录入真实个人资料或配置真实密钥。
+## 功能
 
-## 当前能力
+- 管理投递、看板、面试日程、进度和复盘；
+- 从文字或图片识别岗位信息，建立面经知识库并生成答案；
+- 扫描 QQ、163 邮箱中的招聘通知，AI 复核后自动生成日程和推进投递状态；
+- 上传简历、录音和项目 ZIP；项目档案仅建立只读索引，不会修改原仓库；
+- AI 助教、面试准备 Agent、代码阅读 Agent，以及按工作区保存的 AI 调用审计；
+- 账号申请须由平台管理员审批后才能登录。
 
-- 投递、看板、列表、统计、面试安排和动态记录；
-- 招聘信息智能录入、面经知识库、答案生成与面试准备；
-- 简历、招聘邮件扫描等现有业务模块；
-- 使用 Nginx 将公网 HTTP 请求反向代理至内部 Node 服务。
+## 服务器运行
 
-## 云端目标架构
-
-```text
-Browser
-  -> Nginx / HTTPS
-  -> Node.js API and Web application
-  -> PostgreSQL (workspace-isolated data)
-  -> Private server file storage (resumes, recordings, screenshots)
-  -> Background workers (mail scanning and AI tasks)
-```
-
-每位用户拥有独立工作空间。服务端必须从登录会话取得工作空间身份，并对数据库查询、文件读取、邮件配置和 AI 日志统一做权限隔离。
-
-## 本地开发与服务器测试
-
-要求：Node.js 24.x、Python 3.11 或 3.12（仅面试准备 Agent 需要）、Linux 编译工具。
+需要 Node.js 24、PostgreSQL（含 pgcrypto、pgvector）和 Python 3.11/3.12（面试准备 Agent）。服务建议通过 systemd 运行，并由 Nginx 反向代理；Node 只监听 `127.0.0.1:3210`。
 
 ```bash
 npm ci
 npm run build
-PREP_AGENT_DISABLED=1 npm start
-```
-
-`npm ci` 若提示 `better-sqlite3` 和 `esbuild` 的安装脚本未批准，执行：
-
-```bash
-npm install-scripts approve better-sqlite3 esbuild
-npm rebuild better-sqlite3 esbuild
-```
-
-测试期 Node 服务默认仅监听 `127.0.0.1:3210`，由 Nginx 对公网提供 HTTP 访问。不要直接开放 3210 或 3211 端口。
-
-## 配置与安全
-
-- `config.json`、`.env`、数据库、上传文件、录音和日志不会提交到 Git；
-- 不要将模型 Key、邮箱授权码或 OSS 密钥写入源码；
-- 未完成登录和工作空间隔离前，不得把真实求职数据放入公网测试环境；
-- 正式上线前必须启用域名、HTTPS、受限 SSH 访问、服务进程守护和自动备份。
-
-## PostgreSQL 数据库底座
-
-云端版使用服务器本机的 PostgreSQL，连接串仅通过环境变量 `DATABASE_URL` 提供。参考 [`.env.example`](.env.example)；正式服务器应把实际值写入 `/etc/job-tracer/job-tracer.env`，不要在项目目录创建或提交真实 `.env` 文件。
-
-数据库结构以 SQL 迁移的方式提交在 `server/src/database/migrations`。常用命令：
-
-```bash
-# 根据 TypeScript schema 生成新的 SQL 迁移（仅开发时执行）
-npm run db:generate
-
-# 对已配置 DATABASE_URL 的 PostgreSQL 执行尚未应用的迁移
 npm run db:migrate
-
-# 仅检查数据库是否可连接，不修改数据
-npm run db:check
+npm start
 ```
 
-第一份迁移只创建云端身份和工作区基础表：`users`、`workspaces`、`workspace_members`、`sessions`。现有业务仍使用临时 SQLite 数据库，后续会按模块迁移并加入 `workspace_id`，不会把不同用户的数据合并在一起。
+真实配置写在服务器受保护的环境文件和 `config.json` 中，不能提交到 Git。参考 [`.env.example`](.env.example) 和 [`config.example.json`](config.example.json)。
 
-## 开发路线
-
-1. 用户、审批注册、登录、会话与工作空间成员模型；
-2. SQLite 迁移至 PostgreSQL，所有业务表按工作空间隔离；
-3. 简历、截图、录音和材料迁移到服务器私有文件目录；
-4. 邮箱扫描、AI 任务和日志按工作空间隔离；
-5. Docker、systemd、HTTPS、备份与监控；
-6. 从本地版导入用户个人数据。
-
-## 账号审批与首次管理员
-
-公开页面只允许提交注册申请。管理员在“账号与访问管理”中批准申请后，系统才会创建账号和个人工作区；申请中保存的密码哈希会随审批结果清除。首次管理员仅能由服务器终端创建一次：
+首次平台管理员通过服务器终端创建：
 
 ```bash
-export DATABASE_URL='postgresql://job_tracer:数据库密码@127.0.0.1:5432/job_tracer'
-export BOOTSTRAP_ADMIN_EMAIL='你的邮箱'
-export BOOTSTRAP_ADMIN_DISPLAY_NAME='管理员昵称'
-export BOOTSTRAP_ADMIN_PASSWORD='至少12位的登录密码'
 npm run auth:bootstrap
-unset DATABASE_URL BOOTSTRAP_ADMIN_EMAIL BOOTSTRAP_ADMIN_DISPLAY_NAME BOOTSTRAP_ADMIN_PASSWORD
 ```
 
-当前阶段，账号与审批数据已经使用 PostgreSQL；投递、日程、知识库等既有业务仍在 SQLite，尚未按 `workspace_id` 隔离。因此不能把“账号已登录”误认为“业务数据已完成多用户隔离”。业务数据迁移完成前，后端只允许平台管理员访问既有业务接口；已批准的普通用户会看到迁移提示页，避免看到共享旧数据。
+该命令需要临时提供 `DATABASE_URL`、`BOOTSTRAP_ADMIN_EMAIL`、`BOOTSTRAP_ADMIN_DISPLAY_NAME` 和 `BOOTSTRAP_ADMIN_PASSWORD`。
+
+## 数据备份
+
+云端数据由 PostgreSQL、工作区私有文件、邮箱授权码加密文件和邮箱主密钥共同组成。加载服务器环境变量后执行：
+
+```bash
+npm run backup:cloud
+```
+
+脚本会在 `backups/` 创建带时间戳的私有备份目录；可用 `npm run backup:cloud -- --output /安全目录` 指定位置。备份中可能包含模型配置、加密邮箱授权文件和对应主密钥，必须存入加密且受访问控制的位置。数据库连接串不会写进备份。

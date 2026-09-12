@@ -6,8 +6,7 @@ import { store, toggleTutor } from '../store'
 import type { TutorCitation, TutorMessage, TutorSession } from '../types'
 import RichText from './RichText.vue'
 
-// AI 助教（需求 3.9.4）：学习区右侧常驻对话栏
-// 会话与消息持久化在服务端 SQLite（tutor_sessions / tutor_messages），换页面/重启都在
+// AI 助教：学习区右侧常驻对话栏；会话与消息按工作区保存在 PostgreSQL。
 
 // 助教专用模型切换（config.json 登记多个模型；只影响助教对话，其他 AI 功能用默认模型）
 interface ArkModel {
@@ -16,18 +15,21 @@ interface ArkModel {
 }
 const models = ref<ArkModel[]>([])
 const activeModel = ref('')
+const canManageModel = ref(false)
 
 async function loadModel(): Promise<void> {
   try {
-    const r = await api.get<{ models: ArkModel[]; active: string }>('/tutor/model')
+    const r = await api.get<{ models: ArkModel[]; active: string; canManage?: boolean }>('/tutor/model')
     models.value = r.models
     activeModel.value = r.active
+    canManageModel.value = Boolean(r.canManage)
   } catch {
     /* 未配置时不显示切换器 */
   }
 }
 
 async function switchModel(model: string): Promise<void> {
+  if (!canManageModel.value) return
   try {
     await api.put('/tutor/model', { model })
     ElMessage.success(`助教已切换到 ${models.value.find((m) => m.id === model)?.label || model}`)
@@ -202,9 +204,10 @@ onMounted(async () => {
     <!-- 助教专用模型切换（只配了一个模型时不显示） -->
     <div v-if="models.length > 1" class="tutor-model-bar">
       <span class="tutor-model-label">模型</span>
-      <el-select v-model="activeModel" size="small" class="tutor-model-select" @change="switchModel">
+      <el-select v-model="activeModel" size="small" class="tutor-model-select" :disabled="!canManageModel" @change="switchModel">
         <el-option v-for="m in models" :key="m.id" :value="m.id" :label="m.label" />
       </el-select>
+      <span v-if="!canManageModel" class="tutor-model-hint">由管理员统一设置</span>
     </div>
 
     <!-- 历史会话列表 -->
@@ -314,6 +317,7 @@ onMounted(async () => {
 }
 .tutor-model-label { font-size: 12px; color: #909399; flex-shrink: 0; }
 .tutor-model-select { flex: 1; }
+.tutor-model-hint { font-size: 12px; color: #909399; white-space: nowrap; }
 
 /* 历史会话列表 */
 .tutor-history {

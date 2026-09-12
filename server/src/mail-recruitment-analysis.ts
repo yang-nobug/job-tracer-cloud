@@ -62,7 +62,7 @@ export interface MailAnalysisResult extends PreparedMailAnalysis {
   reviewErrorCode: string | null
 }
 
-export async function analyzeRecruitmentMail(source: MailAnalysisSource, options?: { skipAudit?: boolean }): Promise<MailAnalysisResult> {
+export async function analyzeRecruitmentMail(source: MailAnalysisSource, options?: { skipAudit?: boolean; workspaceId?: string }): Promise<MailAnalysisResult> {
   const prepared = prepareMailAnalysis(source)
   if (!prepared.sourceText.trim()) throw new Error('邮件正文为空，无法识别')
   const prompt = loadPrompt('mail-recruitment-extract.system.md')
@@ -83,7 +83,7 @@ export async function analyzeRecruitmentMail(source: MailAnalysisSource, options
     schema: MAIL_RECRUITMENT_EXTRACTION_SCHEMA,
     validate: value => validateMailRecruitmentExtraction(value, prepared.sourceText, prepared.sourceUrls),
     repairInstruction: error => `上次输出未通过校验：${error.message.slice(0, 300)}。请重新检查同一封邮件，只修正字段、时间语义和原文证据，不补造事实，仅返回完整 JSON。`,
-    skipAudit: options?.skipAudit
+    skipAudit: options?.skipAudit, workspaceId: options?.workspaceId
   })
   const reviewPrompt = loadPrompt('mail-schedule-review.system.md')
   const reviewInput = JSON.stringify({
@@ -108,7 +108,7 @@ export async function analyzeRecruitmentMail(source: MailAnalysisSource, options
       schema: MAIL_SCHEDULE_REVIEW_SCHEMA,
       validate: value => validateMailScheduleReview(value, prepared.sourceText),
       repairInstruction: error => `上次日程复核未通过校验：${error.message.slice(0, 300)}。请只引用邮件原文中的连续短句，重新返回完整 JSON，不补造事实。`,
-      skipAudit: options?.skipAudit
+      skipAudit: options?.skipAudit, workspaceId: options?.workspaceId
     })
     scheduleReview = reviewed.value
     reviewModel = reviewed.completion.model

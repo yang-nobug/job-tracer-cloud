@@ -78,6 +78,62 @@
       "when": 1789203000000,
       "tag": "0010_workspace-prep-task-execution",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1789203600000,
+      "tag": "0011_workspace-interview-reviews",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1789204200000,
+      "tag": "0012_workspace-recordings",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1789204800000,
+      "tag": "0013_workspace-tutor",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1789205400000,
+      "tag": "0014_workspace-project-archives",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1789206000000,
+      "tag": "0015_workspace-code-reading",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1789206600000,
+      "tag": "0016_workspace-ai-call-records",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1789207200000,
+      "tag": "0017_platform-ai-settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1789207800000,
+      "tag": "0018_platform-system-logs",
+      "breakpoints": true
     }
   ]
 }

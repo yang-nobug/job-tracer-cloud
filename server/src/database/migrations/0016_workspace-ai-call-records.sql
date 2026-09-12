@@ -1,0 +1,30 @@
+CREATE TABLE "workspace_ai_call_records" (
+  "id" serial PRIMARY KEY,
+  "workspace_id" uuid NOT NULL REFERENCES "workspaces"("id") ON DELETE CASCADE,
+  "task" varchar(80) NOT NULL,
+  "stage" varchar(120) NOT NULL,
+  "attempt" integer NOT NULL DEFAULT 1,
+  "retry_of_call_id" integer,
+  "model" varchar(200),
+  "prompt_hash" varchar(64) NOT NULL,
+  "provider_request_id" varchar(200),
+  "request_messages_json" text NOT NULL,
+  "response_schema_json" text,
+  "request_options_json" text,
+  "raw_response" text,
+  "parsed_response_json" text,
+  "validated_response_json" text,
+  "status" varchar(32) NOT NULL,
+  "error_type" varchar(80),
+  "error_message" text,
+  "duration_ms" integer NOT NULL,
+  "finish_reason" varchar(80),
+  "prompt_tokens" integer,
+  "completion_tokens" integer,
+  "total_tokens" integer,
+  "provider_attempts" integer,
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "finished_at" timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX "workspace_ai_call_records_workspace_created_idx" ON "workspace_ai_call_records" ("workspace_id","created_at");
+CREATE INDEX "workspace_ai_call_records_workspace_task_idx" ON "workspace_ai_call_records" ("workspace_id","task","created_at");

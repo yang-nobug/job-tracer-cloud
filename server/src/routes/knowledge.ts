@@ -223,9 +223,10 @@ knowledgeRouter.get('/sources/:id/export.md', (req: Request, res: Response) => {
     )
   }
   // 同公司、岗位、轮次允许录入多份面经；按录入顺序编号，避免导出文件同名。
-  const duplicateIndex = Number(db.prepare(`SELECT COUNT(*) AS count FROM knowledge_sources
+  const duplicateRow = db.prepare(`SELECT COUNT(*) AS count FROM knowledge_sources
     WHERE owner=? AND company=? AND COALESCE(position, '')=COALESCE(?, '') AND COALESCE(round, '')=COALESCE(?, '') AND id<=?`)
-    .get(source.owner, source.company, source.position, source.round, source.id)?.count ?? 1)
+    .get(source.owner, source.company, source.position, source.round, source.id) as { count: number } | undefined
+  const duplicateIndex = Number(duplicateRow?.count ?? 1)
   const filename = `${[
     markdownFilenamePart(source.company),
     source.position ? markdownFilenamePart(source.position) : '',

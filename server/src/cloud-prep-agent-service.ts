@@ -11,7 +11,7 @@ type Status = typeof CLOUD_PREP_STATUSES[number]
 export interface CloudPrepConstraints { focus: string[]; project_ids: number[]; resume_id: number | null }
 export interface CloudPrepRun { id: string; workspace_id: string; thread_id: string; request_id: string; application_id: number; interview_id: number; status: Status; goal: string; constraints_json: string; input_hash: string; snapshot_hash: string | null; current_node: string | null; plan_json: string | null; evidence_json: string | null; role_profile_json: string | null; gap_analysis_json: string | null; critic_json: string | null; warnings_json: string; error_type: string | null; error_message: string | null; model_calls: number; prompt_tokens: number; completion_tokens: number; total_tokens: number; created_at: string; updated_at: string; finished_at: string | null }
 
-export interface CloudPrepEvidence { ref: string; type: 'knowledge_item' | 'application' | 'interview' | 'mastery' | 'resume'; title: string; excerpt: string; source_id?: number | null; item_id?: number; score?: number; company?: string; position?: string; round?: string; retrieval_scope?: 'same_company_position' | 'same_company' | 'general' }
+export interface CloudPrepEvidence { ref: string; type: 'knowledge_item' | 'application' | 'interview' | 'review' | 'mastery' | 'resume' | 'project'; title: string; excerpt: string; source_id?: number | null; item_id?: number; score?: number; company?: string; position?: string; round?: string; retrieval_scope?: 'same_company_position' | 'same_company' | 'general' }
 
 export class CloudPrepError extends Error { constructor(message: string, public statusCode = 422, public kind = 'validation') { super(message) } }
 
@@ -25,8 +25,8 @@ export function parseCloudPrepConstraints(value: string | null): CloudPrepConstr
   const raw = parseJson<Record<string, unknown>>(value, {})
   const focus = Array.isArray(raw.focus) ? raw.focus.map(value => clip(value, 40)).filter(Boolean).slice(0, 8) : []
   const resumeId = Number(raw.resume_id)
-  // 项目档案尚未迁到云端，不能把旧 SQLite 的 id 当作用户证据传给 Agent。
-  return { focus, project_ids: [], resume_id: Number.isInteger(resumeId) && resumeId > 0 ? resumeId : null }
+  const projectIds = Array.isArray(raw.project_ids) ? [...new Set(raw.project_ids.map(Number).filter(id => Number.isInteger(id) && id > 0))].slice(0, 3) : []
+  return { focus, project_ids: projectIds, resume_id: Number.isInteger(resumeId) && resumeId > 0 ? resumeId : null }
 }
 
 export function validateCloudPrepCreate(body: unknown): { applicationId: number; interviewId: number; goal: string; constraints: CloudPrepConstraints; requestId: string } {
@@ -39,8 +39,9 @@ export function validateCloudPrepCreate(body: unknown): { applicationId: number;
   const constraints = raw.constraints && typeof raw.constraints === 'object' && !Array.isArray(raw.constraints) ? raw.constraints : {}
   const focus = Array.isArray((constraints as Record<string, unknown>).focus) ? (constraints as Record<string, unknown>).focus as unknown[] : []
   const resumeId = Number((constraints as Record<string, unknown>).resume_id)
+  const projectIds = Array.isArray((constraints as Record<string, unknown>).project_ids) ? [...new Set(((constraints as Record<string, unknown>).project_ids as unknown[]).map(Number).filter(id => Number.isInteger(id) && id > 0))].slice(0, 3) : []
   return { applicationId, interviewId, goal: clip(raw.goal, 500) || '根据当前岗位和面试资料生成准备计划', requestId,
-    constraints: { focus: focus.map(value => clip(value, 40)).filter(Boolean).slice(0, 8), project_ids: [], resume_id: Number.isInteger(resumeId) && resumeId > 0 ? resumeId : null } }
+    constraints: { focus: focus.map(value => clip(value, 40)).filter(Boolean).slice(0, 8), project_ids: projectIds, resume_id: Number.isInteger(resumeId) && resumeId > 0 ? resumeId : null } }
 }
 
 export async function createCloudPrepRun(workspaceId: string, input: ReturnType<typeof validateCloudPrepCreate>): Promise<CloudPrepRun> {
@@ -55,6 +56,11 @@ export async function createCloudPrepRun(workspaceId: string, input: ReturnType<
     const resume = await sql.unsafe(`SELECT r.id FROM resumes r JOIN resume_texts t ON t.resume_id=r.id
       WHERE r.workspace_id=$1 AND r.id=$2 AND t.workspace_id=$1 AND t.status='completed' AND length(COALESCE(t.text_content,''))>0`, [workspaceId, input.constraints.resume_id])
     if (!resume.length) throw new CloudPrepError('选择的简历不存在或尚未成功提取文本', 422, 'resume_unavailable')
+  }
+  if (input.constraints.project_ids.length) {
+    const ids = sql.array(input.constraints.project_ids, 23)
+    const projects = await sql.unsafe('SELECT id FROM workspace_project_profiles WHERE workspace_id=$1 AND id=ANY($2::int[])', [workspaceId, ids])
+    if (projects.length !== input.constraints.project_ids.length) throw new CloudPrepError('选择的项目档案不存在', 422, 'project_unavailable')
   }
   const active = await sql.unsafe(`SELECT id FROM workspace_prep_agent_runs WHERE workspace_id=$1 AND interview_id=$2
     AND status IN ('pending','running','waiting_review','committing') LIMIT 1`, [workspaceId, input.interviewId])
@@ -88,7 +94,13 @@ export async function cloudPrepContext(run: CloudPrepRun) {
   const resumeRows = constraints.resume_id ? await sql.unsafe(`SELECT r.id,r.filename,r.note,t.text_content FROM resumes r JOIN resume_texts t ON t.resume_id=r.id
     WHERE r.workspace_id=$1 AND r.id=$2 AND t.workspace_id=$1 AND t.status='completed'`, [run.workspace_id, constraints.resume_id]) as Array<{ id: number; filename: string; note: string | null; text_content: string }> : []
   const resume = resumeRows[0] ? { ref: 'RES', type: 'resume' as const, item_id: resumeRows[0].id, title: resumeRows[0].note ? `${resumeRows[0].filename} · ${resumeRows[0].note}` : resumeRows[0].filename, excerpt: clip(resumeRows[0].text_content, 16000) } : null
-  const context = { application: { ref: 'APP' as const, id: run.application_id, company: String(row.company), position: String(row.position), status: String(row.status), location: row.application_location == null ? null : String(row.application_location), jd_text: clip(row.jd_text, 12000) || null, notes: clip(row.notes, 3000) || null }, interview: { ref: 'IV' as const, id: run.interview_id, round: String(row.round), scheduled_at: String(row.scheduled_at), location: row.interview_location == null ? null : String(row.interview_location), done: row.done ? 1 : 0 }, existing_checklist: checklist, resume, resume_status: constraints.resume_id ? (resume ? 'completed' : 'unavailable') : null, reviews: [], mastery, projects: [] }
+  const reviewRows = await sql.unsafe(`SELECT r.interview_id,r.content,i.round,i.scheduled_at FROM workspace_interview_reviews r
+    JOIN interviews i ON i.id=r.interview_id AND i.workspace_id=r.workspace_id
+    WHERE r.workspace_id=$1 AND i.application_id=$2 ORDER BY r.updated_at DESC LIMIT 6`, [run.workspace_id, run.application_id]) as Array<{ interview_id: number; content: string; round: string; scheduled_at: string }>
+  const reviews: CloudPrepEvidence[] = reviewRows.map((item, index) => ({ ref: `R${index + 1}`, type: 'review', item_id: item.interview_id, title: `${item.round} 复盘`, excerpt: clip(item.content, 4000), round: item.round }))
+  const projectRows = constraints.project_ids.length ? await sql.unsafe(`SELECT p.id,p.name,p.description,f.title,f.content FROM workspace_project_profiles p LEFT JOIN workspace_project_facts f ON f.project_id=p.id WHERE p.workspace_id=$1 AND p.id=ANY($2::int[]) ORDER BY p.id,f.id DESC`, [run.workspace_id, sql.array(constraints.project_ids, 23)]) as Array<{ id:number; name:string; description:string; title:string|null; content:string|null }> : []
+  const projects: CloudPrepEvidence[] = projectRows.map((item, index) => ({ ref: `P${index + 1}`, type: 'project' as const, item_id: item.id, title: item.title ? `${item.name} · ${item.title}` : item.name, excerpt: clip([item.description, item.content].filter(Boolean).join('\n'), 3000) || '项目已接入，但尚未填写项目事实。' })).slice(0, 12)
+  const context = { application: { ref: 'APP' as const, id: run.application_id, company: String(row.company), position: String(row.position), status: String(row.status), location: row.application_location == null ? null : String(row.application_location), jd_text: clip(row.jd_text, 12000) || null, notes: clip(row.notes, 3000) || null }, interview: { ref: 'IV' as const, id: run.interview_id, round: String(row.round), scheduled_at: String(row.scheduled_at), location: row.interview_location == null ? null : String(row.interview_location), done: row.done ? 1 : 0 }, existing_checklist: checklist, resume, resume_status: constraints.resume_id ? (resume ? 'completed' : 'unavailable') : null, reviews, mastery, projects }
   return { snapshot_hash: hash({ ...context, application_updated_at: row.application_updated_at, interview_created_at: row.interview_created_at }), ...context }
 }
 
@@ -102,7 +114,7 @@ export async function serializeCloudPrepRun(workspaceId: string | null, id: stri
 
 export async function cloudPrepReferences(run: CloudPrepRun): Promise<CloudPrepEvidence[]> {
   const context = await cloudPrepContext(run); const evidence = parseJson<CloudPrepEvidence[]>(run.evidence_json, [])
-  return [{ ref: 'APP', type: 'application', title: `${context.application.company} · ${context.application.position}`, excerpt: [context.application.jd_text, context.application.notes].filter(Boolean).join('\n\n') || '当前投递未填写 JD 或备注。' }, { ref: 'IV', type: 'interview', title: context.interview.round, excerpt: `面试时间：${context.interview.scheduled_at}` }, ...(context.resume ? [context.resume] : []), ...context.mastery, ...evidence.filter(item => !['APP', 'IV', 'RES'].includes(item.ref))]
+  return [{ ref: 'APP', type: 'application', title: `${context.application.company} · ${context.application.position}`, excerpt: [context.application.jd_text, context.application.notes].filter(Boolean).join('\n\n') || '当前投递未填写 JD 或备注。' }, { ref: 'IV', type: 'interview', title: context.interview.round, excerpt: `面试时间：${context.interview.scheduled_at}` }, ...(context.resume ? [context.resume] : []), ...context.reviews, ...context.mastery, ...context.projects, ...evidence.filter(item => !['APP', 'IV', 'RES'].includes(item.ref))]
 }
 
 export async function searchCloudPrepEvidence(run: CloudPrepRun, queries: unknown): Promise<CloudPrepEvidence[]> {
@@ -135,7 +147,7 @@ export async function finishCloudPrepStep(run: CloudPrepRun, stepId: number, bod
 
 export async function persistCloudPrepPlan(run: CloudPrepRun, value: unknown): Promise<{ checklistIds: number[]; plan: PrepPlan }> { const plan = validatePrepPlan(value); if (!['waiting_review', 'committing', 'completed'].includes(run.status)) throw new CloudPrepError('当前运行不在等待确认状态', 409, 'run_state'); if (run.status === 'completed') { const ids = await getPostgresSql().unsafe('SELECT checklist_id FROM workspace_prep_agent_plan_items WHERE run_id=$1 AND checklist_id IS NOT NULL ORDER BY sort', [run.id]) as Array<{ checklist_id: number }>; return { checklistIds: ids.map(r => r.checklist_id), plan: parseJson(run.plan_json, plan) } }
   const context = await cloudPrepContext(run); if (run.snapshot_hash && run.snapshot_hash !== context.snapshot_hash) throw new CloudPrepError('投递、面试或准备清单在生成后发生了变化，请重新生成或重新确认', 409, 'snapshot_changed')
-  const valid = new Set(['APP', 'IV', ...(context.resume ? ['RES'] : []), ...context.mastery.map(item => item.ref), ...parseJson<CloudPrepEvidence[]>(run.evidence_json, []).map(item => item.ref)]); const focus = parseCloudPrepConstraints(run.constraints_json).focus.map(normalize); const covered = new Set(plan.items.flatMap(item => item.focus_areas).map(normalize)); for (const item of plan.items) { if (item.evidence_refs.some(ref => !valid.has(ref))) throw new CloudPrepError(`任务“${item.title}”包含无效引用`); } for (const item of focus) if (!covered.has(item)) throw new CloudPrepError('重点方向没有映射到任何准备任务', 422, 'focus_not_covered')
+  const valid = new Set(['APP', 'IV', ...(context.resume ? ['RES'] : []), ...context.reviews.map(item => item.ref), ...context.mastery.map(item => item.ref), ...context.projects.map(item => item.ref), ...parseJson<CloudPrepEvidence[]>(run.evidence_json, []).map(item => item.ref)]); const focus = parseCloudPrepConstraints(run.constraints_json).focus.map(normalize); const covered = new Set(plan.items.flatMap(item => item.focus_areas).map(normalize)); for (const item of plan.items) { if (item.evidence_refs.some(ref => !valid.has(ref))) throw new CloudPrepError(`任务“${item.title}”包含无效引用`); } for (const item of focus) if (!covered.has(item)) throw new CloudPrepError('重点方向没有映射到任何准备任务', 422, 'focus_not_covered')
   const evidence = new Map(parseJson<CloudPrepEvidence[]>(run.evidence_json, []).map(item => [item.ref, item])); const ids = await getPostgresSql().begin(async sql => { const existing = await sql.unsafe('SELECT checklist_id FROM workspace_prep_agent_plan_items WHERE run_id=$1 AND checklist_id IS NOT NULL ORDER BY sort', [run.id]) as Array<{ checklist_id: number }>; if (existing.length) return existing.map(item => item.checklist_id); const max = await sql.unsafe('SELECT COALESCE(MAX(sort),0)::integer AS value FROM checklist_items WHERE workspace_id=$1 AND interview_id=$2', [run.workspace_id, run.interview_id]) as Array<{ value: number }>; const result: number[] = []; for (const [index, item] of plan.items.entries()) { const content = `[${item.priority === 'high' ? '高' : item.priority === 'medium' ? '中' : '低'}] ${item.title}（建议${item.estimated_minutes}分钟）`; const check = await sql.unsafe('INSERT INTO checklist_items (workspace_id,interview_id,content,sort) VALUES ($1,$2,$3,$4) RETURNING id', [run.workspace_id, run.interview_id, content, max[0].value + index + 1]) as Array<{ id: number }>; result.push(check[0].id); await sql.unsafe(`INSERT INTO workspace_prep_agent_plan_items (run_id,checklist_id,title,category,priority,estimated_minutes,reason,success_criteria,evidence_json,sort) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [run.id, check[0].id, item.title, item.category, item.priority, item.estimated_minutes, item.reason, item.success_criteria, JSON.stringify(item.evidence_refs.map(ref => evidence.get(ref) ?? { ref })), index]) } await sql.unsafe(`UPDATE workspace_prep_agent_runs SET status='completed',current_node='finalize',plan_json=$1,updated_at=now(),finished_at=now(),error_type=NULL,error_message=NULL WHERE id=$2`, [JSON.stringify(plan), run.id]); return result }); return { checklistIds: ids, plan } }
 
 export async function cancelCloudPrepRun(run: CloudPrepRun): Promise<void> { if (run.status === 'completed') throw new CloudPrepError('已完成的计划不能取消', 409, 'run_state'); await getPostgresSql().unsafe(`UPDATE workspace_prep_agent_runs SET status='cancelled',current_node='cancelled',updated_at=now(),finished_at=now() WHERE id=$1 AND status<>'completed'`, [run.id]) }

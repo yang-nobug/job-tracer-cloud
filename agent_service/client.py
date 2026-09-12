@@ -87,6 +87,7 @@ class JobTracerClient:
         headers = {"x-trace-id": self._trace_ids[run_id]} if run_id in self._trace_ids else None
         try:
             response = await self._code_client.post("/investigate", json={
+                "run_id": run_id,
                 "project_ids": project_ids, "objective": objective, "questions": questions,
             }, headers=headers)
             payload = response.json() if response.content else {}
