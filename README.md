@@ -18,7 +18,7 @@ Browser
   -> Nginx / HTTPS
   -> Node.js API and Web application
   -> PostgreSQL (workspace-isolated data)
-  -> Private object storage (resumes, recordings, screenshots)
+  -> Private server file storage (resumes, recordings, screenshots)
   -> Background workers (mail scanning and AI tasks)
 ```
 
@@ -50,11 +50,30 @@ npm rebuild better-sqlite3 esbuild
 - 未完成登录和工作空间隔离前，不得把真实求职数据放入公网测试环境；
 - 正式上线前必须启用域名、HTTPS、受限 SSH 访问、服务进程守护和自动备份。
 
+## PostgreSQL 数据库底座
+
+云端版使用服务器本机的 PostgreSQL，连接串仅通过环境变量 `DATABASE_URL` 提供。参考 [`.env.example`](.env.example)；正式服务器应把实际值写入 `/etc/job-tracer/job-tracer.env`，不要在项目目录创建或提交真实 `.env` 文件。
+
+数据库结构以 SQL 迁移的方式提交在 `server/src/database/migrations`。常用命令：
+
+```bash
+# 根据 TypeScript schema 生成新的 SQL 迁移（仅开发时执行）
+npm run db:generate
+
+# 对已配置 DATABASE_URL 的 PostgreSQL 执行尚未应用的迁移
+npm run db:migrate
+
+# 仅检查数据库是否可连接，不修改数据
+npm run db:check
+```
+
+第一份迁移只创建云端身份和工作区基础表：`users`、`workspaces`、`workspace_members`、`sessions`。现有业务仍使用临时 SQLite 数据库，后续会按模块迁移并加入 `workspace_id`，不会把不同用户的数据合并在一起。
+
 ## 开发路线
 
 1. 用户、登录、会话与工作空间成员模型；
 2. SQLite 迁移至 PostgreSQL，所有业务表按工作空间隔离；
-3. 简历、截图、录音和材料迁移到私有对象存储；
+3. 简历、截图、录音和材料迁移到服务器私有文件目录；
 4. 邮箱扫描、AI 任务和日志按工作空间隔离；
 5. Docker、systemd、HTTPS、备份与监控；
 6. 从本地版导入用户个人数据。

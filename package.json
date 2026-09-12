@@ -5,21 +5,28 @@
   "type": "module",
   "allowScripts": {
     "better-sqlite3@12.11.1": true,
-    "esbuild@0.28.2": true
+    "esbuild@0.28.2": true,
+    "esbuild@0.18.20": true,
+    "esbuild@0.25.12": true
   },
   "scripts": {
     "dev": "concurrently -n server,web -c blue,green \"tsx watch server/src/index.ts\" \"vite\"",
     "build": "vite build",
-    "start": "tsx server/src/index.ts"
+    "start": "tsx server/src/index.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx server/src/database/migrate.ts",
+    "db:check": "tsx server/src/database/check.ts"
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",
+    "drizzle-orm": "^0.45.2",
     "echarts": "^6.0.0",
     "element-plus": "^2.10.0",
     "express": "^5.1.0",
     "imapflow": "^1.7.8",
     "markdown-it": "^14.1.0",
     "multer": "^2.0.1",
+    "postgres": "^3.4.9",
     "vue": "^3.5.0",
     "vue-router": "^4.5.0",
     "vuedraggable": "^4.1.0"
@@ -31,6 +38,7 @@
     "@types/multer": "^2.0.0",
     "@vitejs/plugin-vue": "^6.0.0",
     "concurrently": "^9.2.0",
+    "drizzle-kit": "^0.31.10",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0",
     "vite": "^7.0.0"

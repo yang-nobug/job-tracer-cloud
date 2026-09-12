@@ -30,6 +30,7 @@ import { codeReadingRouter } from './routes/code-reading.js'
 import { recoverInterruptedCodeReadingSessions } from './code-reading-agent.js'
 import { logApp, newTraceId, runWithTrace, validTraceId } from './observability.js'
 import { feishuRouter } from './routes/feishu.js'
+import { healthRouter } from './routes/health.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const configuredPort = Number(process.env.PORT)
@@ -43,6 +44,7 @@ if (recoveredRecordings) console.log(`[recordings] 已恢复 ${recoveredRecordin
 const recoveredResumes = recoverInterruptedResumeExtractions()
 if (recoveredResumes) console.log(`[resumes] 已标记 ${recoveredResumes} 个中断的简历提取，可在简历选择器中重试`)
 app.use(express.json({ limit: '2mb' }))
+app.use('/api', healthRouter)
 
 // 每个 HTTP 请求都有可回查的链路编号；内部 Python Agent 会透传该 header。
 app.use((req, res, next) => {
