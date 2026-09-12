@@ -17,6 +17,7 @@ import { cloudApplicationImportsRouter } from './routes/cloud-application-import
 import { localDataImportRouter } from './routes/local-data-import.js'
 import { cloudMailRouter, startCloudMailAutomationScheduler, stopCloudMailAutomationScheduler } from './routes/cloud-mail.js'
 import { cloudPrepAgentRouter } from './routes/cloud-prep-agent.js'
+import { cloudPrepTasksRouter } from './routes/cloud-prep-tasks.js'
 import { recoverInterruptedRecordings, recordingsRouter } from './routes/recordings.js'
 import { tutorRouter } from './routes/tutor.js'
 import { aiRouter } from './routes/ai.js'
@@ -37,7 +38,6 @@ import { projectsRouter } from './routes/projects.js'
 import { codeReadingRouter } from './routes/code-reading.js'
 import { recoverInterruptedCodeReadingSessions } from './code-reading-agent.js'
 import { logApp, newTraceId, runWithTrace, validTraceId } from './observability.js'
-import { feishuRouter } from './routes/feishu.js'
 import { healthRouter } from './routes/health.js'
 import { authRouter } from './routes/auth.js'
 import { adminRouter } from './routes/admin.js'
@@ -97,12 +97,12 @@ app.use('/api/local-data-import', localDataImportRouter)
 app.use('/api', cloudMailRouter)
 // 面试准备计划已迁入 PostgreSQL，必须在旧 SQLite 路由之前注册。
 app.use('/api', cloudPrepAgentRouter)
+app.use('/api', cloudPrepTasksRouter)
 
 // 其余模块仍使用共享 SQLite 数据，继续限制为管理员，直到逐项迁移完成。
 app.use('/api', requireLegacyDataAccess)
 app.use('/api', aiRouter)
 app.use('/api', observabilityRouter)
-app.use('/api/feishu', feishuRouter)
 app.use('/api', projectsRouter)
 app.use('/api', codeReadingRouter)
 app.use('/api/application-imports', applicationImportsRouter)
