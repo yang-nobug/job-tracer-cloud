@@ -120,13 +120,17 @@ try {
 }
 
 // 统一错误处理（422/500 -> JSON）
-app.use((err: Error & { status?: number }, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+app.use((err: Error & { status?: number; code?: string }, req: express.Request, res: express.Response, _next: express.NextFunction) => {
   const status = Number.isInteger(err.status) && err.status! >= 400 && err.status! < 600 ? err.status! : 500
   if (status >= 500) console.error(err)
   logApp({ level: status >= 500 ? 'error' : 'warn', source: 'api', eventName: 'api.unhandled_error', message: err.message || '服务器错误',
     traceId: validTraceId(req.get('x-trace-id')) ?? undefined, errorCode: 'UNHANDLED_ERROR', errorStack: err.stack,
     context: { method: req.method, path: req.path } })
-  res.status(status).json({ message: err.message || '服务器错误' })
+  // 预期的 4xx 校验提示可以返回；未知 5xx 只记日志，不能把 SQL、路径或第三方错误暴露给浏览器。
+  res.status(status).json({
+    message: status >= 500 ? '服务器暂时异常，请稍后重试' : (err.message || '请求失败'),
+    ...(typeof err.code === 'string' && err.code ? { code: err.code } : {})
+  })
 })
 
 // 托管前端构建产物（npm run build 后存在）

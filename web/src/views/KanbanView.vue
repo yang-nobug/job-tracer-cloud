@@ -6,6 +6,7 @@ import { api } from '../api'
 import { store, openDetail, openEditForm } from '../store'
 import { isCalendarDate } from '../../../shared/application-import'
 import { avatarColor } from '../utils/avatar'
+import { safeExternalUrl } from '../utils/external-url'
 import { STATUS_ORDER, STATUS_LABELS, ASSESSMENT_STATUSES, INTERVIEW_STATUSES, type Application, type Status } from '../types'
 
 const apps = ref<Application[]>([])
@@ -292,7 +293,7 @@ const GROUP_COLOR = '#f5a623'
               <span v-if="element.rejected_at" class="card-rejected">
                 {{ element.reject_type === 'me' ? '我拒' : '挂' }}
               </span>
-              <a v-if="element.application_link" class="card-link" :href="element.application_link" target="_blank" rel="noopener noreferrer" title="查看投递进度" @click.stop>🔗</a>
+              <a v-if="safeExternalUrl(element.application_link)" class="card-link" :href="safeExternalUrl(element.application_link)" target="_blank" rel="noopener noreferrer" title="查看投递进度" @click.stop>🔗</a>
             </div>
             <div class="card-position">{{ element.position }}</div>
             <div class="card-meta">
@@ -349,7 +350,7 @@ const GROUP_COLOR = '#f5a623'
                   <span v-if="element.rejected_at" class="card-rejected">
                     {{ element.reject_type === 'me' ? '我拒' : '挂' }}
                   </span>
-                  <a v-if="element.application_link" class="card-link" :href="element.application_link" target="_blank" rel="noopener noreferrer" title="查看投递进度" @click.stop>🔗</a>
+                  <a v-if="safeExternalUrl(element.application_link)" class="card-link" :href="safeExternalUrl(element.application_link)" target="_blank" rel="noopener noreferrer" title="查看投递进度" @click.stop>🔗</a>
                 </div>
                 <div class="card-position">{{ element.position }}</div>
                 <div class="card-meta">
@@ -407,7 +408,7 @@ const GROUP_COLOR = '#f5a623'
                   <span v-if="element.rejected_at" class="card-rejected">
                     {{ element.reject_type === 'me' ? '我拒' : '挂' }}
                   </span>
-                  <a v-if="element.application_link" class="card-link" :href="element.application_link" target="_blank" rel="noopener noreferrer" title="查看投递进度" @click.stop>🔗</a>
+                  <a v-if="safeExternalUrl(element.application_link)" class="card-link" :href="safeExternalUrl(element.application_link)" target="_blank" rel="noopener noreferrer" title="查看投递进度" @click.stop>🔗</a>
                 </div>
                 <div class="card-position">{{ element.position }}</div>
                 <div class="card-meta">
@@ -473,7 +474,7 @@ const GROUP_COLOR = '#f5a623'
               <span v-if="element.rejected_at" class="card-rejected">
                 {{ element.reject_type === 'me' ? '我拒' : '挂' }}
               </span>
-              <a v-if="element.application_link" class="card-link" :href="element.application_link" target="_blank" rel="noopener noreferrer" title="查看投递进度" @click.stop>🔗</a>
+              <a v-if="safeExternalUrl(element.application_link)" class="card-link" :href="safeExternalUrl(element.application_link)" target="_blank" rel="noopener noreferrer" title="查看投递进度" @click.stop>🔗</a>
             </div>
             <div class="card-position">{{ element.position }}</div>
             <div class="card-meta">

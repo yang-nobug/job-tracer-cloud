@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { api, ApiError } from '../api'
 import { openDetail, bumpData } from '../store'
 import { STATUS_LABELS, type Status } from '../types'
+import { openExternalUrl } from '../utils/external-url'
 
 interface Duplicate {
   applicationId: number
@@ -21,7 +22,6 @@ interface SharedJob {
   location: string | null
   channel: string | null
   jdLink: string | null
-  applicationLink: string | null
   jdText: string | null
   createdAt: string
   updatedAt: string
@@ -63,13 +63,7 @@ function jdSummary(value: string | null): string {
 
 function openExternal(value: string | null): void {
   if (!value) { ElMessage.warning('该岗位暂未提供链接'); return }
-  try {
-    const url = new URL(value)
-    if (!['http:', 'https:'].includes(url.protocol)) throw new Error('protocol')
-    window.open(url.toString(), '_blank', 'noopener,noreferrer')
-  } catch {
-    ElMessage.error('链接格式无效，无法打开')
-  }
+  if (!openExternalUrl(value)) ElMessage.error('链接格式无效，无法打开')
 }
 
 async function loadConsent(): Promise<void> {
@@ -103,6 +97,12 @@ async function acceptConsent(): Promise<void> {
 
 function leaveSharedJobs(): void { void router.push('/track/kanban') }
 
+function onConsentRevoked(): void {
+  selected.value = null
+  jobs.value = []
+  consented.value = false
+}
+
 async function addToMine(job: SharedJob): Promise<void> {
   addingId.value = job.id
   try {
@@ -131,11 +131,14 @@ function viewMine(duplicate: Duplicate): void {
 }
 
 onMounted(async () => {
+  window.addEventListener('job-tracer:shared-jobs-revoked', onConsentRevoked)
   try {
     await loadConsent()
     if (consented.value) await load()
   } catch (error) { ElMessage.error((error as Error).message || '无法读取共享权限') }
 })
+
+onUnmounted(() => window.removeEventListener('job-tracer:shared-jobs-revoked', onConsentRevoked))
 </script>
 
 <template>
@@ -144,7 +147,7 @@ onMounted(async () => {
       <div>
         <p class="page-kicker">SHARED JOBS</p>
         <h1>共享岗位</h1>
-        <p>同意共享的用户可以互相查看岗位 JD 与投递链接；个人进度、面试、简历和联系方式始终保持私有。</p>
+        <p>同意共享的用户可以互相查看岗位 JD；个人投递进度、面试、简历和联系方式始终保持私有。</p>
       </div>
       <div class="intro-count"><b>{{ jobs.length }}</b><span>个可参考岗位</span></div>
     </header>
@@ -171,10 +174,8 @@ onMounted(async () => {
           <el-button text type="primary" @click="selected = job">查看详情</el-button>
           <template v-if="job.duplicate">
             <el-button text type="primary" @click="viewMine(job.duplicate)">查看我的投递</el-button>
-            <el-button v-if="job.duplicate.status === 'unsent' && !job.duplicate.rejectedAt" text type="primary" @click="openExternal(job.applicationLink)">去投递</el-button>
           </template>
           <template v-else>
-            <el-button v-if="job.applicationLink" text type="primary" @click="openExternal(job.applicationLink)">去投递</el-button>
             <el-button type="primary" size="small" :loading="addingId === job.id" @click="addToMine(job)">加入我的投递</el-button>
           </template>
         </footer>
@@ -187,13 +188,13 @@ onMounted(async () => {
       <template v-if="selected">
         <div class="detail-meta"><el-tag v-if="selected.location" effect="plain">{{ selected.location }}</el-tag><el-tag v-if="selected.channel" effect="plain">{{ selected.channel }}</el-tag><el-tag v-if="selected.duplicate" :type="duplicateType(selected.duplicate)" effect="plain">{{ duplicateText(selected.duplicate) }}</el-tag></div>
         <section class="detail-section"><h3>岗位说明</h3><p class="jd-content">{{ selected.jdText || '暂未录入 JD 正文。' }}</p></section>
-        <div class="link-actions"><el-button v-if="selected.jdLink" @click="openExternal(selected.jdLink)">查看 JD 链接</el-button><el-button v-if="selected.applicationLink && (!selected.duplicate || selected.duplicate.status === 'unsent')" @click="openExternal(selected.applicationLink)">去投递</el-button><el-button v-if="selected.duplicate" type="primary" @click="viewMine(selected.duplicate)">查看我的投递</el-button><el-button v-else type="primary" :loading="addingId === selected.id" @click="addToMine(selected)">加入我的投递</el-button></div>
+        <div class="link-actions"><el-button v-if="selected.jdLink" @click="openExternal(selected.jdLink)">查看 JD 链接</el-button><el-button v-if="selected.duplicate" type="primary" @click="viewMine(selected.duplicate)">查看我的投递</el-button><el-button v-else type="primary" :loading="addingId === selected.id" @click="addToMine(selected)">加入我的投递</el-button></div>
       </template>
     </el-dialog>
 
     <el-dialog :model-value="consented === false" title="加入共享岗位" width="min(520px, calc(100vw - 28px))" :close-on-click-modal="false" :show-close="false" :close-on-press-escape="false">
       <p class="consent-lead">共享岗位是互惠功能：同意共享后，才能查看其他用户汇总的岗位信息。</p>
-      <div class="consent-box"><b>会共享</b><p>公司、岗位、地点、岗位类型、JD 正文、JD 链接和投递链接。</p><b>不会共享</b><p>投递进度、日程、面经、简历、联系人、联系方式、附件和 AI 记录。</p></div>
+      <div class="consent-box"><b>会共享</b><p>公司、岗位、地点、岗位类型、JD 正文和 JD 链接。</p><b>不会共享</b><p>投递进度链接、投递进度、日程、面经、简历、联系人、联系方式、附件和 AI 记录。</p></div>
       <template #footer><el-button @click="leaveSharedJobs">暂不同意</el-button><el-button type="primary" :loading="consentSaving" @click="acceptConsent">同意共享并进入</el-button></template>
     </el-dialog>
   </section>

@@ -8,6 +8,7 @@ import { avatarColor } from '../utils/avatar'
 import StatusTag from './StatusTag.vue'
 import EventTimeline from './EventTimeline.vue'
 import InterviewPanel from './InterviewPanel.vue'
+import { safeExternalUrl } from '../utils/external-url'
 
 const props = defineProps<{ appId: number | null }>()
 const emit = defineEmits<(e: 'close') => void>()
@@ -146,8 +147,8 @@ function fmtDate(s: string | null): string {
           <div class="info-item"><span class="info-label">联系人</span><span class="info-value">{{ detail.contact_name || '未填写' }}</span></div>
           <div class="info-item"><span class="info-label">联系方式</span><span class="info-value">{{ detail.contact_info || '未填写' }}</span></div>
           <div class="info-item"><span class="info-label">投递简历</span><span class="info-value"><a v-if="detail.resume" :href="`/api/resumes/${detail.resume.id}/file`" target="_blank" rel="noopener noreferrer" class="link">{{ detail.resume.filename }}</a><span v-else>未关联</span></span></div>
-          <div v-if="detail.jd_link" class="info-item wide"><span class="info-label">岗位 JD 链接</span><a :href="detail.jd_link" target="_blank" rel="noopener noreferrer" class="link">打开岗位来源 ↗</a></div>
-          <div v-if="detail.application_link" class="info-item wide"><span class="info-label">投递进度链接</span><a :href="detail.application_link" target="_blank" rel="noopener noreferrer" class="link">查看投递进度 ↗</a></div>
+          <div v-if="safeExternalUrl(detail.jd_link)" class="info-item wide"><span class="info-label">岗位 JD 链接</span><a :href="safeExternalUrl(detail.jd_link)" target="_blank" rel="noopener noreferrer" class="link">打开岗位来源 ↗</a></div>
+          <div v-if="safeExternalUrl(detail.application_link)" class="info-item wide"><span class="info-label">投递进度链接</span><a :href="safeExternalUrl(detail.application_link)" target="_blank" rel="noopener noreferrer" class="link">查看投递进度 ↗</a></div>
         </div>
       </section>
 

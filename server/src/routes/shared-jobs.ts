@@ -27,7 +27,6 @@ interface SharedSource {
   location: string | null
   channel: string | null
   jd_link: string | null
-  application_link: string | null
   jd_text: string | null
   created_at: string
   updated_at: string
@@ -111,7 +110,7 @@ function sharedPredicate(alias = 'a'): string {
 
 async function sharedSource(id: number): Promise<SharedSource | null> {
   const rows = await getPostgresSql().unsafe(
-    `SELECT a.id,a.company,a.position,a.location,a.channel,a.jd_link,a.application_link,a.jd_text,a.created_at,a.updated_at
+    `SELECT a.id,a.company,a.position,a.location,a.channel,a.jd_link,a.jd_text,a.created_at,a.updated_at
      FROM applications a WHERE a.id=$1 AND ${sharedPredicate('a')}`,
     [id]
   ) as SharedSource[]
@@ -126,7 +125,6 @@ function publicJob(source: SharedSource, personal: PersonalApplication[]) {
     location: source.location,
     channel: source.channel,
     jdLink: source.jd_link,
-    applicationLink: source.application_link,
     jdText: source.jd_text,
     createdAt: source.created_at,
     updatedAt: source.updated_at,
@@ -189,7 +187,7 @@ sharedJobsRouter.get('/shared-jobs', async (req, res, next) => {
     }
     if (location) clauses.push(`COALESCE(a.location,'') ILIKE ${add(`%${location}%`)}`)
     const rows = await getPostgresSql().unsafe(
-      `SELECT a.id,a.company,a.position,a.location,a.channel,a.jd_link,a.application_link,a.jd_text,a.created_at,a.updated_at
+      `SELECT a.id,a.company,a.position,a.location,a.channel,a.jd_link,a.jd_text,a.created_at,a.updated_at
        FROM applications a WHERE ${clauses.join(' AND ')} ORDER BY a.updated_at DESC,a.id DESC LIMIT 200`,
       values as never[]
     ) as SharedSource[]
@@ -221,10 +219,10 @@ sharedJobsRouter.post('/shared-jobs/:id/add', async (req, res, next) => {
     const duplicate = duplicateFor(source, await personalApplications(workspaceId))
     if (duplicate) return res.status(409).json({ message: '该岗位已在你的投递列表中', duplicate })
     const rows = await getPostgresSql().unsafe(
-      `INSERT INTO applications(workspace_id,company,position,status,channel,location,jd_link,application_link,jd_text,notes)
-       VALUES($1,$2,$3,'unsent',$4,$5,$6,$7,$8,$9)
-       RETURNING id,company,position,status,applied_at,applied_time,channel,location,resume_id,jd_link,application_link,jd_text,contact_name,contact_info,notes,rejected_at,reject_type,created_at,updated_at`,
-      [workspaceId, source.company, source.position, source.channel || '共享岗位', source.location, source.jd_link, source.application_link, source.jd_text, '来自共享岗位']
+      `INSERT INTO applications(workspace_id,company,position,status,channel,location,jd_link,jd_text,notes)
+       VALUES($1,$2,$3,'unsent',$4,$5,$6,$7,$8)
+       RETURNING id,company,position,status,applied_at,applied_time,channel,location,resume_id,jd_link,jd_text,contact_name,contact_info,notes,rejected_at,reject_type,created_at,updated_at`,
+      [workspaceId, source.company, source.position, source.channel || '共享岗位', source.location, source.jd_link, source.jd_text, '来自共享岗位']
     )
     res.status(201).json(rows[0])
   } catch (error) { next(error) }

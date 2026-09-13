@@ -7,6 +7,7 @@ import type { Application } from '../types'
 import { avatarColor } from '../utils/avatar'
 import StatusTag from '../components/StatusTag.vue'
 import FilterBar from '../components/FilterBar.vue'
+import { safeExternalUrl } from '../utils/external-url'
 
 const apps = ref<Application[]>([])
 const filters = ref<{ status?: string; channel?: string; keyword?: string; rejected?: string }>({})
@@ -114,7 +115,7 @@ function onCommand(cmd: string, app: Application): void {
             <span v-if="row.rejected_at" class="company-rejected">
               {{ row.reject_type === 'me' ? '我拒' : '挂' }}
             </span>
-            <a v-if="row.application_link" class="company-link" :href="row.application_link" target="_blank" rel="noopener noreferrer" title="查看投递进度" @click.stop>🔗</a>
+            <a v-if="safeExternalUrl(row.application_link)" class="company-link" :href="safeExternalUrl(row.application_link)" target="_blank" rel="noopener noreferrer" title="查看投递进度" @click.stop>🔗</a>
           </div>
         </template>
       </el-table-column>

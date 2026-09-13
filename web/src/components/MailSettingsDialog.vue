@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../api'
 import { bumpData } from '../store'
+import { safeExternalUrl } from '../utils/external-url'
 
 interface MailAccount {
   id: number
@@ -743,7 +744,7 @@ watch(() => scheduleDraft.value.timeMode, timeMode => {
           />
         </el-form-item>
         <div class="form-actions">
-          <el-link :href="selectedProvider.setupUrl" target="_blank" rel="noopener noreferrer" type="primary">打开邮箱设置</el-link>
+          <el-link :href="safeExternalUrl(selectedProvider.setupUrl) || undefined" target="_blank" rel="noopener noreferrer" type="primary">打开邮箱设置</el-link>
           <el-button type="primary" :loading="testing" @click="testAndSave">{{ actionLabel }}</el-button>
         </div>
       </el-form>
@@ -941,11 +942,11 @@ watch(() => scheduleDraft.value.timeMode, timeMode => {
             </ol>
           </section>
 
-          <section v-if="analysisCandidate.analysis.meeting_link || analysisCandidate.analysis.action_link" class="analysis-section">
+          <section v-if="safeExternalUrl(analysisCandidate.analysis.meeting_link) || safeExternalUrl(analysisCandidate.analysis.action_link)" class="analysis-section">
             <h4>邮件中的链接</h4>
             <div class="link-list">
-              <el-link v-if="analysisCandidate.analysis.meeting_link" :href="analysisCandidate.analysis.meeting_link" target="_blank" rel="noopener noreferrer" type="primary">打开会议链接</el-link>
-              <el-link v-if="analysisCandidate.analysis.action_link" :href="analysisCandidate.analysis.action_link" target="_blank" rel="noopener noreferrer" type="primary">打开测评 / 操作链接</el-link>
+              <el-link v-if="safeExternalUrl(analysisCandidate.analysis.meeting_link)" :href="safeExternalUrl(analysisCandidate.analysis.meeting_link)" target="_blank" rel="noopener noreferrer" type="primary">打开会议链接</el-link>
+              <el-link v-if="safeExternalUrl(analysisCandidate.analysis.action_link)" :href="safeExternalUrl(analysisCandidate.analysis.action_link)" target="_blank" rel="noopener noreferrer" type="primary">打开测评 / 操作链接</el-link>
             </div>
           </section>
 

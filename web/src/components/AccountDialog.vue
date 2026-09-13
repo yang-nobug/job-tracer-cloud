@@ -81,12 +81,13 @@ async function loadSharedJobsConsent(): Promise<void> {
 
 async function revokeSharedJobsConsent(): Promise<void> {
   try {
-    await ElMessageBox.confirm('撤回后，你将不能进入共享岗位页；你的公司、岗位、JD 与投递链接也会立刻从共享列表隐藏。个人投递数据不会删除。', '撤回共享岗位权限', {
+    await ElMessageBox.confirm('撤回后，你将不能进入共享岗位页；你的公司、岗位和 JD 会立刻从共享列表隐藏。个人投递数据不会删除。', '撤回共享岗位权限', {
       type: 'warning', confirmButtonText: '确认撤回', cancelButtonText: '取消', confirmButtonClass: 'el-button--danger'
     })
     sharedJobsLoading.value = true
     await api.put('/shared-jobs/consent', { consented: false })
     sharedJobsConsented.value = false
+    window.dispatchEvent(new Event('job-tracer:shared-jobs-revoked'))
     ElMessage.success('已撤回共享岗位权限')
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') ElMessage.error((error as Error).message || '撤回失败')
@@ -164,7 +165,7 @@ watch(open, value => {
       </section>
 
       <section class="shared-jobs-section">
-        <div class="section-heading"><div><h3>共享岗位</h3><p>这是互惠功能：同意后可查看其他用户共享的岗位，你自己的岗位公开字段也会参与共享。</p></div><el-tag :type="sharedJobsConsented ? 'success' : 'info'" effect="plain">{{ sharedJobsConsented ? '已开启' : '未开启' }}</el-tag></div>
+        <div class="section-heading"><div><h3>共享岗位</h3><p>这是互惠功能：同意后可查看其他用户共享的岗位 JD，你自己的岗位公开字段也会参与共享。</p></div><el-tag :type="sharedJobsConsented ? 'success' : 'info'" effect="plain">{{ sharedJobsConsented ? '已开启' : '未开启' }}</el-tag></div>
         <div class="shared-jobs-box">
           <span>不会共享投递进度、日程、面经、简历、联系方式或附件。</span>
           <el-button v-if="sharedJobsConsented" type="danger" plain :loading="sharedJobsLoading" @click="revokeSharedJobsConsent">撤回共享</el-button>
