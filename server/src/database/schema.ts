@@ -25,6 +25,8 @@ export const users = pgTable('users', {
   passwordHash: text('password_hash').notNull(),
   status: varchar('status', { length: 24 }).notNull().default('active'),
   isAdmin: boolean('is_admin').notNull().default(false),
+  /** 同意后才可进入互惠共享岗位页，同时本人的岗位公开字段参与共享。 */
+  sharedJobsConsentAt: timestamp('shared_jobs_consent_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
 }, table => [

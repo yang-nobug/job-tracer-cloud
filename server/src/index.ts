@@ -24,6 +24,7 @@ import { cloudCodeReadingRouter, recoverInterruptedCloudCodeReadingSessions } fr
 import { cloudAiAuditRouter } from './routes/cloud-ai-audit.js'
 import { cloudAiSettingsRouter } from './routes/cloud-ai-settings.js'
 import { cloudObservabilityRouter } from './routes/cloud-observability.js'
+import { sharedJobsRouter } from './routes/shared-jobs.js'
 import { refreshPlatformAiSettings } from './platform-ai-settings.js'
 import {
   configurePrepAgentRuntime, recoverPrepAgentRuntimeRun, stopPrepAgentService
@@ -103,6 +104,7 @@ app.use('/api', cloudAiSettingsRouter)
 // AI 调用记录保存于工作区 PostgreSQL，优先于旧 SQLite 的同路径接口。
 app.use('/api', cloudAiAuditRouter)
 app.use('/api', cloudObservabilityRouter)
+app.use('/api', sharedJobsRouter)
 app.use('/api/application-imports', cloudApplicationImportsRouter)
 app.use('/api/local-data-import', localDataImportRouter)
 app.use('/api', cloudMailRouter)

@@ -22,6 +22,8 @@ const handlingId = ref<string | null>(null)
 const localDataArchive = ref<File | null>(null)
 const importingLocalData = ref(false)
 const localImportInput = ref<HTMLInputElement | null>(null)
+const sharedJobsConsented = ref(false)
+const sharedJobsLoading = ref(false)
 
 function selectLocalDataArchive(): void { localImportInput.value?.click() }
 function onLocalDataArchiveChange(event: Event): void {
@@ -67,6 +69,28 @@ async function loadRequests(): Promise<void> {
   } finally {
     loading.value = false
   }
+}
+
+async function loadSharedJobsConsent(): Promise<void> {
+  if (!authState.user) return
+  try {
+    const result = await api.get<{ consented: boolean }>('/shared-jobs/status')
+    sharedJobsConsented.value = result.consented
+  } catch (error) { ElMessage.error((error as Error).message || '无法读取共享岗位设置') }
+}
+
+async function revokeSharedJobsConsent(): Promise<void> {
+  try {
+    await ElMessageBox.confirm('撤回后，你将不能进入共享岗位页；你的公司、岗位、JD 与投递链接也会立刻从共享列表隐藏。个人投递数据不会删除。', '撤回共享岗位权限', {
+      type: 'warning', confirmButtonText: '确认撤回', cancelButtonText: '取消', confirmButtonClass: 'el-button--danger'
+    })
+    sharedJobsLoading.value = true
+    await api.put('/shared-jobs/consent', { consented: false })
+    sharedJobsConsented.value = false
+    ElMessage.success('已撤回共享岗位权限')
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') ElMessage.error((error as Error).message || '撤回失败')
+  } finally { sharedJobsLoading.value = false }
 }
 
 async function approve(item: RegistrationRequest): Promise<void> {
@@ -116,7 +140,7 @@ async function signOut(): Promise<void> {
 }
 
 watch(open, value => {
-  if (value) void loadRequests()
+  if (value) { void loadRequests(); void loadSharedJobsConsent() }
 })
 </script>
 
@@ -137,6 +161,15 @@ watch(open, value => {
           <div class="local-import-actions"><input ref="localImportInput" type="file" accept=".zip,application/zip" hidden @change="onLocalDataArchiveChange"><el-button @click="selectLocalDataArchive">选择 ZIP</el-button><el-button type="primary" :loading="importingLocalData" :disabled="!localDataArchive" @click="importLocalData">清空并导入</el-button></div>
         </div>
         <p class="local-import-warning">仅导入当前登录账号自己的工作区。导入前会要求你确认清空当前云端测试数据，其他用户的数据不会受影响。</p>
+      </section>
+
+      <section class="shared-jobs-section">
+        <div class="section-heading"><div><h3>共享岗位</h3><p>这是互惠功能：同意后可查看其他用户共享的岗位，你自己的岗位公开字段也会参与共享。</p></div><el-tag :type="sharedJobsConsented ? 'success' : 'info'" effect="plain">{{ sharedJobsConsented ? '已开启' : '未开启' }}</el-tag></div>
+        <div class="shared-jobs-box">
+          <span>不会共享投递进度、日程、面经、简历、联系方式或附件。</span>
+          <el-button v-if="sharedJobsConsented" type="danger" plain :loading="sharedJobsLoading" @click="revokeSharedJobsConsent">撤回共享</el-button>
+          <span v-else class="muted">前往“共享岗位”页面即可开启</span>
+        </div>
       </section>
 
       <section v-if="authState.user.isAdmin" class="approval-section">
@@ -162,7 +195,8 @@ watch(open, value => {
 .account-summary { display: flex; align-items: center; gap: 11px; padding: 15px; border: 1px solid #e5eaf1; border-radius: 12px; background: #f8faff; }
 .account-avatar { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 50%; background: #2f6fed; color: #fff; font-weight: 700; }
 .account-summary div { display: grid; gap: 3px; }.account-summary small, .request-email { color: #7e8999; font-size: 12px; }.account-summary .el-tag { margin-left: auto; }
-.approval-section, .local-import-section { margin-top: 22px; }.section-heading { display: flex; align-items: center; justify-content: space-between; }.section-heading h3 { margin: 0; font-size: 15px; }.section-heading p { margin: 5px 0 13px; color: #7a8798; font-size: 12px; }.request-email { display: block; margin-top: 3px; }.muted { color: #8994a4; font-size: 12px; }
+.approval-section, .local-import-section, .shared-jobs-section { margin-top: 22px; }.section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }.section-heading h3 { margin: 0; font-size: 15px; }.section-heading p { margin: 5px 0 13px; color: #7a8798; font-size: 12px; }.request-email { display: block; margin-top: 3px; }.muted { color: #8994a4; font-size: 12px; }
 .local-import-box { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 13px 14px; border: 1px dashed #aebfd8; border-radius: 10px; background: #f8fbff; }.local-import-box b, .local-import-box small { display: block; }.local-import-box b { font-size: 13px; color: #334155; }.local-import-box small { max-width: 430px; margin-top: 5px; color: #77859a; font-size: 12px; line-height: 1.55; }.local-import-actions { display: flex; flex: none; gap: 8px; }.local-import-warning { margin: 8px 0 0; color: #9b6a1d; font-size: 12px; line-height: 1.5; } code { padding: 1px 4px; border-radius: 3px; background: #eef2f7; color: #44526a; }
+.shared-jobs-box { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid #dce7fa; border-radius: 10px; background: #f8fbff; color: #66758a; font-size: 12px; line-height: 1.55; }
 @media (max-width: 620px) { .local-import-box { align-items: stretch; flex-direction: column; }.local-import-actions { justify-content: flex-end; } }
 </style>

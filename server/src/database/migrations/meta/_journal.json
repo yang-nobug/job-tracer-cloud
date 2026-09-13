@@ -134,6 +134,13 @@
       "when": 1789207800000,
       "tag": "0018_platform-system-logs",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1789210000000,
+      "tag": "0019_shared-jobs",
+      "breakpoints": true
     }
   ]
 }
