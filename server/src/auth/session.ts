@@ -45,10 +45,18 @@ export function sessionCookieOptions(): {
   }
 }
 
-/** 公网生产服务不得降级为明文会话 Cookie。 */
+/**
+ * 只给迁移中的公网 IP 测试保留的显式开关。
+ * 默认值为 false；正式公网服务必须继续使用 HTTPS 和 Secure Cookie。
+ */
+function allowsInsecureHttp(): boolean {
+  return process.env.ALLOW_INSECURE_HTTP?.trim().toLowerCase() === 'true'
+}
+
+/** 公网生产服务不得在未显式确认的情况下降级为明文会话 Cookie。 */
 export function assertSecureSessionConfiguration(): void {
-  if (process.env.NODE_ENV === 'production' && !sessionCookieOptions().secure) {
-    throw new Error('生产环境必须设置 SESSION_COOKIE_SECURE=true，并通过 HTTPS 提供服务')
+  if (process.env.NODE_ENV === 'production' && !sessionCookieOptions().secure && !allowsInsecureHttp()) {
+    throw new Error('生产环境必须设置 SESSION_COOKIE_SECURE=true，并通过 HTTPS 提供服务；仅临时公网 IP 测试可显式设置 ALLOW_INSECURE_HTTP=true')
   }
 }
 
