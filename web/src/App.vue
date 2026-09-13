@@ -153,7 +153,7 @@ watch(() => authState.user?.userId, userId => {
             <el-button class="utility-button" text>更多 <span class="more-caret">⌄</span></el-button>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item v-if="workspace === 'learn'" command="project">项目档案</el-dropdown-item>
+                <el-dropdown-item command="project">项目档案</el-dropdown-item>
                 <el-dropdown-item v-if="authState.user.isAdmin" command="observability">运行与日志</el-dropdown-item>
                 <el-dropdown-item v-if="authState.user.isAdmin" command="privacy">AI 数据说明</el-dropdown-item>
               </el-dropdown-menu>

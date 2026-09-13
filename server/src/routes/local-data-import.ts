@@ -3,7 +3,7 @@ import type { Request, Response } from 'express'
 import multer from 'multer'
 import AdmZip from 'adm-zip'
 import Database from 'better-sqlite3'
-import { mkdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { getPostgresSql } from '../database/client.js'
@@ -142,9 +142,61 @@ function readableRows(database: Database.Database, table: string): LegacyRow[] {
   return exists ? database.prepare(`SELECT * FROM ${table}`).all() as LegacyRow[] : []
 }
 
-function clearWorkspaceFiles(workspaceId: string): void {
-  for (const root of [WORKSPACE_RESUMES_DIR, WORKSPACE_KNOWLEDGE_IMAGES_DIR, WORKSPACE_APPLICATION_MATERIALS_DIR]) {
-    rmSync(path.join(root, workspaceId), { recursive: true, force: true })
+const workspaceFileGroups = [
+  { name: 'resumes', root: WORKSPACE_RESUMES_DIR },
+  { name: 'knowledge_images', root: WORKSPACE_KNOWLEDGE_IMAGES_DIR },
+  { name: 'application_materials', root: WORKSPACE_APPLICATION_MATERIALS_DIR }
+] as const
+
+type WorkspaceFileSwap = {
+  finalize: () => void
+  rollback: () => void
+}
+
+function stagedFileRoot(stage: string, name: string): string {
+  return path.join(stage, 'workspace-files', name)
+}
+
+/**
+ * 旧文件始终保留到 PostgreSQL 事务提交后。这样 ZIP 损坏、字段异常或数据库失败
+ * 都只会清理暂存目录，不会让已有简历、截图和材料变成孤儿记录。
+ */
+function activateStagedWorkspaceFiles(stage: string, workspaceId: string): WorkspaceFileSwap {
+  const backupRoot = path.join(stage, 'previous-workspace-files')
+  const moved: Array<{ target: string; backup: string; hadPrevious: boolean }> = []
+  const rollback = () => {
+    for (const item of [...moved].reverse()) {
+      rmSync(item.target, { recursive: true, force: true })
+      if (item.hadPrevious && existsSync(item.backup)) {
+        mkdirSync(path.dirname(item.target), { recursive: true })
+        renameSync(item.backup, item.target)
+      }
+    }
+  }
+  try {
+    for (const group of workspaceFileGroups) {
+      const incoming = stagedFileRoot(stage, group.name)
+      const target = path.join(group.root, workspaceId)
+      const backup = path.join(backupRoot, group.name)
+      mkdirSync(path.dirname(target), { recursive: true })
+      mkdirSync(path.dirname(backup), { recursive: true })
+      const hadPrevious = existsSync(target)
+      if (hadPrevious) renameSync(target, backup)
+      try {
+        renameSync(incoming, target)
+      } catch (error) {
+        if (hadPrevious && existsSync(backup)) renameSync(backup, target)
+        throw error
+      }
+      moved.push({ target, backup, hadPrevious })
+    }
+  } catch (error) {
+    rollback()
+    throw error
+  }
+  return {
+    finalize: () => rmSync(backupRoot, { recursive: true, force: true }),
+    rollback
   }
 }
 
@@ -173,6 +225,7 @@ localDataImportRouter.post('/', upload.single('archive'), async (req: Request, r
     const entries = archiveEntries(file.path)
     const stage = path.join(IMPORTS_DIR, randomUUID())
     mkdirSync(stage, { recursive: true })
+    for (const group of workspaceFileGroups) mkdirSync(stagedFileRoot(stage, group.name), { recursive: true })
     const legacyDatabasePath = path.join(stage, 'job-tracer.db')
     try {
       writeFileSync(legacyDatabasePath, entries.get('job-tracer.db')!.getData(), { flag: 'wx' })
@@ -194,7 +247,7 @@ localDataImportRouter.post('/', upload.single('archive'), async (req: Request, r
         if (!relative || !writeArchiveFile(entries, relative, target)) { result.missingFiles++; return false }
         return true
       }
-      clearWorkspaceFiles(workspaceId)
+      let fileSwap: WorkspaceFileSwap | null = null
       try {
         await sql.begin(async transaction => {
           // 当前用户明确确认过覆盖；只删除该工作区已迁移的业务数据，绝不影响账号或其他用户。
@@ -209,7 +262,7 @@ localDataImportRouter.post('/', upload.single('archive'), async (req: Request, r
             const oldId = numberValue(row.id, -1); if (oldId <= 0) continue
             const stored = safeLeaf(row.stored_name); const displayName = required(row.filename, stored ?? '未命名简历', 300)
             const newStored = `${randomUUID()}${extension(stored, displayName) || '.bin'}`
-            const target = path.join(WORKSPACE_RESUMES_DIR, workspaceId, newStored)
+            const target = path.join(stagedFileRoot(stage, 'resumes'), newStored)
             writeImportedFile(fileEntry('uploads', stored), target)
             const inserted = await transaction.unsafe('INSERT INTO resumes (workspace_id,filename,stored_name,size,note,uploaded_at) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id', [workspaceId, displayName, newStored, Math.max(0, numberValue(row.size)), text(row.note, 80), timestamp(row.uploaded_at)]) as Array<{ id: number }>
             resumeMap.set(oldId, inserted[0].id); result.resumes++
@@ -263,10 +316,10 @@ localDataImportRouter.post('/', upload.single('archive'), async (req: Request, r
           for (const row of data.knowledgeImages) {
             const sourceId = sourceMap.get(numberValue(row.source_id, -1)); const oldStored = safeLeaf(row.stored_name); if (!sourceId || !oldStored) continue
             const newStored = `${randomUUID()}${extension(oldStored, row.filename) || '.bin'}`
-            const target = path.join(WORKSPACE_KNOWLEDGE_IMAGES_DIR, workspaceId, newStored)
+            const target = path.join(stagedFileRoot(stage, 'knowledge_images'), newStored)
             if (!writeImportedFile(fileEntry('knowledge_images', oldStored), target)) continue
             const oldInference = safeLeaf(row.inference_stored_name); let newInference = oldInference ? `${randomUUID()}${extension(oldInference) || '.bin'}` : null
-            if (newInference && !writeImportedFile(fileEntry('knowledge_images', oldInference), path.join(WORKSPACE_KNOWLEDGE_IMAGES_DIR, workspaceId, newInference))) newInference = null
+            if (newInference && !writeImportedFile(fileEntry('knowledge_images', oldInference), path.join(stagedFileRoot(stage, 'knowledge_images'), newInference))) newInference = null
             await transaction.unsafe('INSERT INTO knowledge_images (workspace_id,source_id,filename,stored_name,inference_stored_name,inference_mime,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)', [workspaceId, sourceId, required(row.filename, oldStored, 300), newStored, newInference, text(row.inference_mime, 80), timestamp(row.created_at)]); result.knowledgeImages++
           }
 
@@ -282,14 +335,17 @@ localDataImportRouter.post('/', upload.single('archive'), async (req: Request, r
             const oldStored = safeLeaf(row.stored_name); const oldInference = safeLeaf(row.inference_stored_name)
             let newStored = oldStored ? `${randomUUID()}${extension(oldStored, row.filename) || '.bin'}` : null
             let newInference = oldInference ? `${randomUUID()}${extension(oldInference) || '.bin'}` : null
-            if (newStored && !writeImportedFile(fileEntry('application_materials', oldStored), path.join(WORKSPACE_APPLICATION_MATERIALS_DIR, workspaceId, newStored))) newStored = null
-            if (newInference && !writeImportedFile(fileEntry('application_materials', oldInference), path.join(WORKSPACE_APPLICATION_MATERIALS_DIR, workspaceId, newInference))) newInference = null
+            if (newStored && !writeImportedFile(fileEntry('application_materials', oldStored), path.join(stagedFileRoot(stage, 'application_materials'), newStored))) newStored = null
+            if (newInference && !writeImportedFile(fileEntry('application_materials', oldInference), path.join(stagedFileRoot(stage, 'application_materials'), newInference))) newInference = null
             await transaction.unsafe('INSERT INTO application_materials (id,import_id,workspace_id,kind,text_content,filename,stored_name,mime,captured_at,inference_stored_name,inference_mime) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)', [materialId, importId, workspaceId, required(row.kind, 'text', 16), text(row.text_content), text(row.filename, 300), newStored, text(row.mime, 80), text(row.captured_at, 10), newInference, text(row.inference_mime, 80)])
             result.applicationMaterials++
           }
+          // 文件替换处于 PostgreSQL 事务内；提交失败时外层会恢复旧目录。
+          fileSwap = activateStagedWorkspaceFiles(stage, workspaceId)
         })
+        fileSwap?.finalize()
       } catch (error) {
-        clearWorkspaceFiles(workspaceId)
+        fileSwap?.rollback()
         throw error
       }
       res.json({ ok: true, result, ignored: ['secrets', 'chrome-profile', 'automation', 'recordings', 'reviews', '.test-output'], message: '本地数据已导入到你的个人工作区' })

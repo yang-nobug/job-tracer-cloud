@@ -45,6 +45,13 @@ export function sessionCookieOptions(): {
   }
 }
 
+/** 公网生产服务不得降级为明文会话 Cookie。 */
+export function assertSecureSessionConfiguration(): void {
+  if (process.env.NODE_ENV === 'production' && !sessionCookieOptions().secure) {
+    throw new Error('生产环境必须设置 SESSION_COOKIE_SECURE=true，并通过 HTTPS 提供服务')
+  }
+}
+
 function tokenHash(token: string): string {
   return createHash('sha256').update(token).digest('hex')
 }

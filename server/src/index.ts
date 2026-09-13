@@ -34,10 +34,12 @@ import { healthRouter } from './routes/health.js'
 import { authRouter } from './routes/auth.js'
 import { adminRouter } from './routes/admin.js'
 import { requireAuth, requireSameOrigin } from './auth/guards.js'
+import { assertSecureSessionConfiguration } from './auth/session.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const configuredPort = Number(process.env.PORT)
 const PORT = Number.isInteger(configuredPort) && configuredPort > 0 && configuredPort <= 65_535 ? configuredPort : 3210
+assertSecureSessionConfiguration()
 configurePrepAgentRuntime(PORT)
 
 const app = express()

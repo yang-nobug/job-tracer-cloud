@@ -14,10 +14,20 @@ import { resolveAppliedDate } from '../application-dates.js'
 import { EXTRACTION_SCHEMA, IMPORT_LIMITS, IMPORT_FIELDS, normalizeExtraction, validateExtraction, type ImportDraft, type ImportSource, type ImportAnalysis } from '../../../shared/application-import.js'
 
 export const cloudApplicationImportsRouter = Router()
-const upload = multer({ storage: multer.memoryStorage(), limits: { files: IMPORT_LIMITS.images * 2, fileSize: IMPORT_LIMITS.imageBytes, fieldSize: IMPORT_LIMITS.text * 4 + 2000 } }).fields([{ name: 'images', maxCount: IMPORT_LIMITS.images }, { name: 'inference_images', maxCount: IMPORT_LIMITS.images }])
 mkdirSync(WORKSPACE_APPLICATION_MATERIALS_DIR, { recursive: true })
+const IMPORT_TEMP_DIR = path.join(WORKSPACE_APPLICATION_MATERIALS_DIR, '.import-tmp')
+mkdirSync(IMPORT_TEMP_DIR, { recursive: true })
+// 截图不能先完整堆在 Node 内存中：9 组原图和推理副本在多人同时上传时会耗尽小规格服务器内存。
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, callback) => callback(null, IMPORT_TEMP_DIR),
+    filename: (_req, _file, callback) => callback(null, `${randomUUID()}.upload`)
+  }),
+  limits: { files: IMPORT_LIMITS.images * 2, fileSize: IMPORT_LIMITS.imageBytes, fieldSize: IMPORT_LIMITS.text * 4 + 2000 }
+}).fields([{ name: 'images', maxCount: IMPORT_LIMITS.images }, { name: 'inference_images', maxCount: IMPORT_LIMITS.images }])
 class CloudImportError extends Error { constructor(message: string, readonly status = 422) { super(message) } }
 function materialPath(workspaceId: string, name: string): string { return path.join(WORKSPACE_APPLICATION_MATERIALS_DIR, workspaceId, path.basename(name)) }
+function removeTemporaryUploads(files: Express.Multer.File[]): void { for (const file of files) try { unlinkSync(file.path) } catch { /* 上传临时文件已被清理 */ } }
 function safeName(name: string): string { const bytes = Buffer.from(name, 'latin1'); const decoded = bytes.toString('utf8'); return path.basename(decoded !== name && Buffer.from(decoded, 'utf8').equals(bytes) ? decoded : name).slice(0, 200) }
 function captured(value: unknown): string | null { if (value == null || value === '') return null; if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new CloudImportError('材料截取日期格式不正确'); return value }
 async function draft(workspaceId: string, id: string): Promise<ImportDraft> {
@@ -29,21 +39,32 @@ async function draft(workspaceId: string, id: string): Promise<ImportDraft> {
 function config() { const cfg = loadArkConfig(); const resolved = resolveAiTask('applicationImport'); const image = resolved?.modelEntry.vision ? resolved.modelEntry : cfg?.models.find(model => model.vision); return { available: !!cfg && isAiTaskEnabled('applicationImport') && !!resolved, model: resolved?.model ?? null, imageModel: image?.id ?? null, maxImages: Math.min(IMPORT_LIMITS.images, resolved?.maxImages ?? IMPORT_LIMITS.images) } }
 
 cloudApplicationImportsRouter.get('/config', (_req, res) => res.json(config()))
-cloudApplicationImportsRouter.post('/', (req, res, next) => upload(req, res, error => { if (error) return res.status(422).json({ message: '上传失败：仅支持最多 9 张、每张不超过 10 MB 的图片，文字最多 20000 字' }); void create(req, res).catch(next) }))
+cloudApplicationImportsRouter.post('/', (req, res, next) => upload(req, res, error => {
+  const received = Object.values((req.files ?? {}) as Record<string, Express.Multer.File[]>).flat()
+  if (error) {
+    removeTemporaryUploads(received)
+    return res.status(422).json({ message: '上传失败：仅支持最多 9 张、每张不超过 10 MB 的图片，文字最多 20000 字' })
+  }
+  void create(req, res).catch(next)
+}))
 async function create(req: Request, res: Response): Promise<void> {
   const workspaceId = requireWorkspaceId(req); const text = typeof req.body?.text === 'string' ? req.body.text.trim() : ''; const files = ((req.files ?? {}) as Record<string, Express.Multer.File[]>).images ?? []; const inference = ((req.files ?? {}) as Record<string, Express.Multer.File[]>).inference_images ?? []
-  if (!text && !files.length) throw new CloudImportError('请添加文字或截图'); if (text.length > IMPORT_LIMITS.text || files.length > IMPORT_LIMITS.images || files.length !== inference.length || files.reduce((n, f) => n + f.size, 0) > IMPORT_LIMITS.totalBytes) throw new CloudImportError('材料数量或大小超限')
-  let meta: { text_date?: unknown; image_dates?: unknown }; try { meta = JSON.parse(req.body?.metadata ?? '{}') } catch { throw new CloudImportError('材料信息格式不正确') }
-  const dates = meta.image_dates ?? files.map(() => null); if (!Array.isArray(dates) || dates.length !== files.length) throw new CloudImportError('截图日期必须与图片一一对应')
-  const id = randomUUID(); const directory = path.join(WORKSPACE_APPLICATION_MATERIALS_DIR, workspaceId); mkdirSync(directory, { recursive: true }); const names: string[] = []
+  const temporaryUploads = [...files, ...inference]
   try {
-    await getPostgresSql().begin(async tx => {
-      await tx.unsafe('INSERT INTO application_imports (id,workspace_id,expires_at) VALUES ($1,$2,now()+interval \'24 hours\')', [id, workspaceId])
-      if (text) await tx.unsafe('INSERT INTO application_materials (id,import_id,workspace_id,kind,text_content,captured_at) VALUES ($1,$2,$3,\'text\',$4,$5)', ['text_1', id, workspaceId, text, captured(meta.text_date)])
-      for (let index = 0; index < files.length; index++) { const original = inspectImage(files[index].buffer); const copy = inspectImage(inference[index].buffer); if (Math.max(copy.width, copy.height) > 2048) throw new CloudImportError('图片推理副本最长边不能超过 2048 像素'); const name = `${randomUUID()}.${original.ext}`; const inferenceName = `${randomUUID()}.${copy.ext}`; writeFileSync(materialPath(workspaceId, name), files[index].buffer, { flag: 'wx' }); writeFileSync(materialPath(workspaceId, inferenceName), inference[index].buffer, { flag: 'wx' }); names.push(name, inferenceName); await tx.unsafe('INSERT INTO application_materials (id,import_id,workspace_id,kind,filename,stored_name,mime,captured_at,inference_stored_name,inference_mime) VALUES ($1,$2,$3,\'image\',$4,$5,$6,$7,$8,$9)', [`image_${index + 1}`, id, workspaceId, safeName(files[index].originalname), name, original.mime, captured(dates[index]), inferenceName, copy.mime]) }
-    })
-  } catch (error) { names.forEach(name => { try { unlinkSync(materialPath(workspaceId, name)) } catch {} }); throw error }
-  res.status(201).json(await draft(workspaceId, id))
+    if (!text && !files.length) throw new CloudImportError('请添加文字或截图'); if (text.length > IMPORT_LIMITS.text || files.length > IMPORT_LIMITS.images || files.length !== inference.length || files.reduce((n, f) => n + f.size, 0) > IMPORT_LIMITS.totalBytes) throw new CloudImportError('材料数量或大小超限')
+    if (inference.some(file => file.size > 5 * 1024 * 1024) || inference.reduce((n, file) => n + file.size, 0) > 20 * 1024 * 1024) throw new CloudImportError('图片推理副本过大，请缩小截图后重试')
+    let meta: { text_date?: unknown; image_dates?: unknown }; try { meta = JSON.parse(req.body?.metadata ?? '{}') } catch { throw new CloudImportError('材料信息格式不正确') }
+    const dates = meta.image_dates ?? files.map(() => null); if (!Array.isArray(dates) || dates.length !== files.length) throw new CloudImportError('截图日期必须与图片一一对应')
+    const id = randomUUID(); const directory = path.join(WORKSPACE_APPLICATION_MATERIALS_DIR, workspaceId); mkdirSync(directory, { recursive: true }); const names: string[] = []
+    try {
+      await getPostgresSql().begin(async tx => {
+        await tx.unsafe('INSERT INTO application_imports (id,workspace_id,expires_at) VALUES ($1,$2,now()+interval \'24 hours\')', [id, workspaceId])
+        if (text) await tx.unsafe('INSERT INTO application_materials (id,import_id,workspace_id,kind,text_content,captured_at) VALUES ($1,$2,$3,\'text\',$4,$5)', ['text_1', id, workspaceId, text, captured(meta.text_date)])
+        for (let index = 0; index < files.length; index++) { const originalBytes = readFileSync(files[index].path); const inferenceBytes = readFileSync(inference[index].path); const original = inspectImage(originalBytes); const copy = inspectImage(inferenceBytes); if (Math.max(copy.width, copy.height) > 2048) throw new CloudImportError('图片推理副本最长边不能超过 2048 像素'); const name = `${randomUUID()}.${original.ext}`; const inferenceName = `${randomUUID()}.${copy.ext}`; writeFileSync(materialPath(workspaceId, name), originalBytes, { flag: 'wx' }); writeFileSync(materialPath(workspaceId, inferenceName), inferenceBytes, { flag: 'wx' }); names.push(name, inferenceName); await tx.unsafe('INSERT INTO application_materials (id,import_id,workspace_id,kind,filename,stored_name,mime,captured_at,inference_stored_name,inference_mime) VALUES ($1,$2,$3,\'image\',$4,$5,$6,$7,$8,$9)', [`image_${index + 1}`, id, workspaceId, safeName(files[index].originalname), name, original.mime, captured(dates[index]), inferenceName, copy.mime]) }
+      })
+    } catch (error) { names.forEach(name => { try { unlinkSync(materialPath(workspaceId, name)) } catch {} }); throw error }
+    res.status(201).json(await draft(workspaceId, id))
+  } finally { removeTemporaryUploads(temporaryUploads) }
 }
 cloudApplicationImportsRouter.get('/:id', async (req, res, next) => { try { res.json(await draft(requireWorkspaceId(req), req.params.id)) } catch (error) { next(error) } })
 cloudApplicationImportsRouter.get('/:id/sources/:sourceId/file', async (req, res, next) => { try { const workspaceId = requireWorkspaceId(req); await draft(workspaceId, req.params.id); const rows = await getPostgresSql().unsafe('SELECT stored_name,mime FROM application_materials WHERE workspace_id=$1 AND import_id=$2 AND id=$3', [workspaceId, req.params.id, req.params.sourceId]) as Array<{ stored_name: string; mime: string }>; if (!rows[0] || !existsSync(materialPath(workspaceId, rows[0].stored_name))) throw new CloudImportError('图片不存在', 404); res.setHeader('X-Content-Type-Options', 'nosniff'); res.type(rows[0].mime).sendFile(materialPath(workspaceId, rows[0].stored_name)) } catch (error) { next(error) } })

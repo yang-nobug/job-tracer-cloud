@@ -85,6 +85,34 @@ const TASK_DEFAULTS: Record<AiTask, Required<Omit<ArkTaskConfig, 'model' | 'maxI
   mailScheduleReview: { outputMode: 'text', maxOutputTokens: 2048, temperature: 0, timeoutMs: 60_000, thinking: 'disabled' }
 }
 
+// 云端所有工作区共用一套模型凭据。此处限制单工作区的突发并发与频率，
+// 避免一次批量操作或重复点击占满模型额度和小规格服务器连接。
+const WORKSPACE_AI_MAX_CONCURRENT = 2
+const WORKSPACE_AI_WINDOW_MS = 10 * 60 * 1000
+const WORKSPACE_AI_MAX_REQUESTS_PER_WINDOW = 30
+const workspaceAiUsage = new Map<string, { active: number; startedAt: number[] }>()
+
+function acquireWorkspaceAiSlot(workspaceId: string): () => void {
+  const now = Date.now()
+  const usage = workspaceAiUsage.get(workspaceId) ?? { active: 0, startedAt: [] }
+  usage.startedAt = usage.startedAt.filter(startedAt => now - startedAt < WORKSPACE_AI_WINDOW_MS)
+  if (usage.active >= WORKSPACE_AI_MAX_CONCURRENT) {
+    throw new AiError('该工作区已有较多 AI 任务正在执行，请等待当前任务完成后再试', 429, 'workspace_ai_concurrency')
+  }
+  if (usage.startedAt.length >= WORKSPACE_AI_MAX_REQUESTS_PER_WINDOW) {
+    throw new AiError('该工作区近期 AI 调用过于频繁，请稍后再试', 429, 'workspace_ai_rate_limit')
+  }
+  usage.active += 1
+  usage.startedAt.push(now)
+  workspaceAiUsage.set(workspaceId, usage)
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    usage.active = Math.max(0, usage.active - 1)
+  }
+}
+
 function positiveInteger(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined
 }
@@ -598,10 +626,12 @@ async function requestCompletion(
   const model = resolveAiTask(task, options)?.model ?? options.model ?? null
   const stage = options.audit?.stage ?? options.responseSchema?.name ?? 'chat'
   const attempt = options.audit?.attempt ?? 1
+  let releaseWorkspaceSlot: (() => void) | null = null
   try {
     if (!isAiTaskEnabled(task)) {
       throw new AiError('该 AI 功能已停用，可在“AI 数据说明”中重新开启', 422, 'task_disabled')
     }
+    if (options.workspaceId) releaseWorkspaceSlot = acquireWorkspaceAiSlot(options.workspaceId)
     const response = await requestCompletionRaw(messages, options)
     const aiRunId = options.skipAudit ? null : writeAiRun({ task, model, promptHash, durationMs: Date.now() - started, status: 'succeeded', result: response })
     const auditCallId = options.skipAudit ? null : writeAiCallRecord({
@@ -625,6 +655,8 @@ async function requestCompletion(
     })
     if (options.workspaceId) await writeWorkspaceAiCall({ workspaceId: options.workspaceId, task, stage, attempt, promptHash, messages, options, error: error as Error, durationMs: Date.now() - started })
     throw error
+  } finally {
+    releaseWorkspaceSlot?.()
   }
 }
 
