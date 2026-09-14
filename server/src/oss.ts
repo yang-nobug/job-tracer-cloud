@@ -1,7 +1,8 @@
 import { createHmac } from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
+import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { Readable } from 'node:stream'
 
 // 阿里云 OSS 极简封装（REST 签名 V1）：上传 / 生成临时签名 URL / 删除
 // 仅服务录音转写管道中转使用，故不引 ali-oss SDK，用 node:crypto 手写签名
@@ -45,25 +46,34 @@ function baseUrl(config: OssConfig): string {
   return `https://${config.bucket}.${config.region}.aliyuncs.com`
 }
 
-/** 上传本地文件到私有桶（PUT Object，签名 V1） */
+/** 上传本地文件到私有桶（PUT Object，签名 V1）。录音从磁盘流式读取，不能整块读入内存。 */
 export async function ossPut(config: OssConfig, objectKey: string, filePath: string, contentType: string): Promise<void> {
   const date = new Date().toUTCString()
   const signature = hmacSha1(
     config.accessKeySecret,
     `PUT\n\n${contentType}\n${date}\n/${config.bucket}/${objectKey}`
   )
-  const res = await fetch(`${baseUrl(config)}/${objectKey}`, {
-    method: 'PUT',
-    headers: {
-      Date: date,
-      'Content-Type': contentType,
-      Authorization: `OSS ${config.accessKeyId}:${signature}`
-    },
-    body: readFileSync(filePath)
-  })
-  if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    throw new Error(`OSS 上传失败 (${res.status}): ${body.slice(0, 200)}`)
+  const input = createReadStream(filePath)
+  try {
+    const init: RequestInit & { duplex: 'half' } = {
+      method: 'PUT',
+      headers: {
+        Date: date,
+        'Content-Type': contentType,
+        'Content-Length': String(statSync(filePath).size),
+        Authorization: `OSS ${config.accessKeyId}:${signature}`
+      },
+      // Node fetch 对流式请求要求 duplex；Readable.toWeb 不会把整个文件缓冲到内存。
+      body: Readable.toWeb(input) as unknown as BodyInit,
+      duplex: 'half'
+    }
+    const res = await fetch(`${baseUrl(config)}/${objectKey}`, init)
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      throw new Error(`OSS 上传失败 (${res.status}): ${body.slice(0, 200)}`)
+    }
+  } finally {
+    if (!input.destroyed) input.destroy()
   }
 }
 

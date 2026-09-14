@@ -4,7 +4,7 @@ import multer from 'multer'
 import { existsSync, mkdirSync, statSync, unlinkSync } from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { completeStructured, isAiTaskEnabled, resolveAiTask } from '../ai.js'
 import { getPostgresSql } from '../database/client.js'
 import { parsePositiveId, requireWorkspaceId } from '../auth/workspace.js'
@@ -57,9 +57,57 @@ async function recording(workspaceId: string, id: number): Promise<Recording | n
 async function interview(workspaceId: string, id: number): Promise<InterviewInfo | null> { const rows = await getPostgresSql().unsafe(`SELECT i.id AS interview_id,i.application_id,i.round,i.scheduled_at,a.company,a.position FROM interviews i JOIN applications a ON a.workspace_id=i.workspace_id AND a.id=i.application_id WHERE i.workspace_id=$1 AND i.id=$2`, [workspaceId, id]) as InterviewInfo[]; return rows[0] ?? null }
 async function update(workspaceId: string, id: number, fields: Record<string, unknown>): Promise<void> { const allowed = new Set(['stored_name', 'size', 'status', 'transcript', 'knowledge_source_id', 'analysis_json', 'analysis_stage', 'attempts', 'error']); const entries = Object.entries(fields).filter(([key]) => allowed.has(key)); if (!entries.length) return; const values = entries.map(([, value]) => value); await getPostgresSql().unsafe(`UPDATE workspace_recordings SET ${entries.map(([key], index) => `${key}=$${index + 1}`).join(',')},updated_at=now() WHERE workspace_id=$${values.length + 1} AND id=$${values.length + 2}`, [...values, workspaceId, id] as never[]) }
 
-let ffmpeg: boolean | null = null
-function hasFfmpeg(): boolean { if (ffmpeg !== null) return ffmpeg; try { ffmpeg = spawnSync('ffmpeg', ['-version'], { timeout: 10_000 }).status === 0 } catch { ffmpeg = false }; return ffmpeg }
-function transcode(workspaceId: string, storedName: string): string { const source = recordingPath(workspaceId, storedName); const converted = `${storedName}.mp3`; const target = recordingPath(workspaceId, converted); const result = spawnSync('ffmpeg', ['-y', '-i', source, '-ac', '1', '-ar', '16000', '-b:a', '64k', target], { timeout: 10 * 60 * 1000, windowsHide: true }); if (result.status !== 0 || !existsSync(target)) throw new Error(`ffmpeg 转码失败：${result.stderr?.toString().slice(-300) || '未知错误'}`); unlinkSync(source); return converted }
+/**
+ * ffmpeg 必须异步运行。录音可能很长，spawnSync 会把整个 Node 事件循环卡住，
+ * 进而令上传、登录和所有其他 API 在转码期间无响应。
+ */
+function runFfmpeg(args: string[], timeoutMs: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let stderr = ''
+    let timedOut = false
+    const child = spawn('ffmpeg', args, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true })
+    const timer = setTimeout(() => {
+      timedOut = true
+      child.kill('SIGKILL')
+    }, timeoutMs)
+    child.stderr.on('data', (chunk: Buffer) => {
+      // 失败提示足够定位问题即可；不要在内存中累积大段 ffmpeg 输出。
+      if (stderr.length < 4_096) stderr += chunk.toString().slice(0, 4_096 - stderr.length)
+    })
+    child.once('error', error => {
+      clearTimeout(timer)
+      reject(error)
+    })
+    child.once('close', code => {
+      clearTimeout(timer)
+      if (timedOut) return reject(new Error('ffmpeg 转码超时（超过 10 分钟）'))
+      if (code === 0) return resolve()
+      reject(new Error(`ffmpeg 转码失败：${stderr.trim().slice(-300) || '未知错误'}`))
+    })
+  })
+}
+
+let ffmpegCheck: Promise<boolean> | null = null
+function hasFfmpeg(): Promise<boolean> {
+  ffmpegCheck ??= runFfmpeg(['-version'], 10_000).then(() => true).catch(() => false)
+  return ffmpegCheck
+}
+
+async function transcode(workspaceId: string, storedName: string): Promise<string> {
+  const source = recordingPath(workspaceId, storedName)
+  const converted = `${storedName}.mp3`
+  const target = recordingPath(workspaceId, converted)
+  try {
+    await runFfmpeg(['-y', '-i', source, '-ac', '1', '-ar', '16000', '-b:a', '64k', target], 10 * 60 * 1000)
+    if (!existsSync(target)) throw new Error('ffmpeg 未生成目标音频')
+  } catch (error) {
+    // 转码失败时避免留下半成品；原始录音保留，用户可以修复环境后重试。
+    try { if (existsSync(target)) unlinkSync(target) } catch { /* no-op */ }
+    throw error
+  }
+  unlinkSync(source)
+  return converted
+}
 
 async function chunks(recordingId: number, transcript: string): Promise<Chunk[]> {
   const desired = splitRecordingTranscript(transcript); const sql = getPostgresSql(); let rows = await sql.unsafe('SELECT * FROM workspace_recording_analysis_chunks WHERE recording_id=$1 ORDER BY chunk_index', [recordingId]) as Chunk[]
@@ -114,7 +162,7 @@ async function pipeline(workspaceId: string, id: number): Promise<void> {
     await update(workspaceId, id, { attempts: rec.attempts + 1, error: null }); let transcript = rec.transcript
     if (!transcript) { const oss = loadOssConfig(); const asr = loadAsrConfig(); if (!oss) throw new Error('OSS 未配置，无法将录音临时交给语音识别服务'); if (!asr) throw new Error('ASR 未配置，无法转写录音')
       await update(workspaceId, id, { status: 'uploading', analysis_stage: 'uploading' }); let storedName = rec.stored_name; let extension = audioExtension(storedName)
-      if (!DIRECT_FORMATS[extension]) { if (!hasFfmpeg()) throw new Error('该格式需要 ffmpeg 转码；请安装 ffmpeg 或上传 mp3、wav、ogg'); storedName = transcode(workspaceId, storedName); extension = '.mp3'; await update(workspaceId, id, { stored_name: storedName, size: statSync(recordingPath(workspaceId, storedName)).size }) }
+      if (!DIRECT_FORMATS[extension]) { if (!await hasFfmpeg()) throw new Error('该格式需要 ffmpeg 转码；请安装 ffmpeg 或上传 mp3、wav、ogg'); storedName = await transcode(workspaceId, storedName); extension = '.mp3'; await update(workspaceId, id, { stored_name: storedName, size: statSync(recordingPath(workspaceId, storedName)).size }) }
       await update(workspaceId, id, { status: 'transcribing', analysis_stage: 'transcribing' }); const objectKey = `job-tracer/${workspaceId}/${id}-${storedName}`; await ossPut(oss, objectKey, recordingPath(workspaceId, storedName), contentType(extension)); try { transcript = await transcribe(asr, ossSignedUrl(oss, objectKey), DIRECT_FORMATS[extension]) } finally { await ossDelete(oss, objectKey).catch(() => undefined) }; await update(workspaceId, id, { transcript, analysis_stage: 'analysis_pending' }); rec = (await recording(workspaceId, id))!
     }
     await update(workspaceId, id, { status: 'analyzing', analysis_stage: 'analysis_pending' }); const persisted = rec.analysis_json ? parse<RecordingAnalysisResult | null>(rec.analysis_json, null) : null; const analysis = persisted ?? await analyze(rec, info, transcript); if (!persisted) await update(workspaceId, id, { analysis_json: JSON.stringify(analysis), analysis_stage: 'finalizing' }); await finalize(rec, info, analysis)
