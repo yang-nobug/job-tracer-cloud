@@ -147,7 +147,11 @@ watch(
         </nav>
         <div class="header-actions">
           <el-dropdown trigger="click" @command="onAccountCommand">
-            <el-button class="utility-button account-button" text>{{ authState.user.displayName }} <span class="more-caret">⌄</span></el-button>
+            <el-button class="utility-button account-button" text>
+              <span class="account-name">{{ authState.user.displayName }}</span>
+              <span class="account-avatar" aria-hidden="true">{{ authState.user.displayName.slice(0, 1) }}</span>
+              <span class="more-caret">⌄</span>
+            </el-button>
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item command="account">账号与访问管理</el-dropdown-item>
@@ -155,9 +159,9 @@ watch(
               </el-dropdown-menu>
             </template>
           </el-dropdown>
-          <el-button class="utility-button" text @click="store.resumeLibraryOpen = true">简历</el-button>
-          <el-button class="utility-button" text @click="mailSettingsOpen = true">日程</el-button>
-          <el-dropdown trigger="click" @command="onMoreCommand">
+          <el-button class="utility-button mobile-hidden" text @click="store.resumeLibraryOpen = true">简历</el-button>
+          <el-button class="utility-button mobile-hidden" text @click="mailSettingsOpen = true">日程</el-button>
+          <el-dropdown class="mobile-hidden" trigger="click" @command="onMoreCommand">
             <el-button class="utility-button" text>更多 <span class="more-caret">⌄</span></el-button>
             <template #dropdown>
               <el-dropdown-menu>
@@ -172,6 +176,11 @@ watch(
         </div>
       </div>
       <CountdownBar v-if="workspace === 'track'" :items="upcoming" @select="openUpcoming" />
+      <nav v-if="workspace === 'learn'" class="mobile-study-tabs" aria-label="学习区导航">
+        <button type="button" :class="{ active: route.path === '/learn/reviews' }" @click="router.push('/learn/reviews')">复盘</button>
+        <button type="button" :class="{ active: route.path.startsWith('/learn/knowledge') }" @click="router.push('/learn/knowledge')">题库</button>
+        <button type="button" :class="{ active: store.tutorOpen }" @click="toggleTutor(true)">✦ AI 助教</button>
+      </nav>
     </header>
 
     <main class="main" :class="{ 'main-learn': workspace === 'learn' }">
@@ -187,13 +196,6 @@ watch(
       <!-- 学习区右侧常驻 AI 助教栏：随路由切换不销毁，切到投递区隐藏但保留对话 -->
       <TutorPanel v-show="workspace === 'learn'" />
     </main>
-
-    <!-- 手机端只服务学习主流程：复盘、题库和 AI 助教。投递管理仍沿用桌面页面。 -->
-    <nav v-if="workspace === 'learn'" class="mobile-learn-nav" aria-label="学习区导航">
-      <button type="button" :class="{ active: route.path === '/learn/reviews' }" @click="router.push('/learn/reviews')"><span>◷</span>复盘</button>
-      <button type="button" :class="{ active: route.path.startsWith('/learn/knowledge') }" @click="router.push('/learn/knowledge')"><span>▤</span>题库</button>
-      <button type="button" :class="{ active: store.tutorOpen }" @click="toggleTutor(true)"><span>✦</span>助教</button>
-    </nav>
 
     <AppFormDrawer v-model="store.formDrawerOpen" :editing="store.editingApp" />
     <DetailDrawer :app-id="store.detailId" @close="store.detailId = null" />
@@ -229,7 +231,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 .app-shell { min-height: 100vh; }
-.mobile-learn-nav { display: none; }
+.mobile-study-tabs { display: none; }
 .auth-loading { min-height: 100vh; display: grid; place-items: center; color: #728095; background: var(--jt-bg); font-size: 14px; }
 
 .header {
@@ -281,6 +283,7 @@ body {
 .utility-button { color: var(--jt-text-muted); font-weight: 550; }
 .utility-button:hover { color: var(--jt-primary); background: var(--jt-primary-soft); }
 .account-button { max-width: 130px; overflow: hidden; text-overflow: ellipsis; }
+.account-avatar { display: none; }
 .more-caret { margin-left: 2px; font-size: 14px; }
 .primary-action { min-width: 96px; margin-left: 6px; border-radius: 8px; font-weight: 650; box-shadow: 0 5px 12px rgba(47, 111, 237, .18); }
 
@@ -312,21 +315,22 @@ body {
   .primary-action { min-width: auto; margin-left: 2px; }
   .main { padding: 16px 12px 24px; }
   .main-learn { display: block; }
-  .learn-shell { padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
-  .learn-shell .header-actions .utility-button,
-  .learn-shell .account-button { display: none; }
-  .learn-shell .primary-action { min-width: 42px; padding-inline: 10px; font-size: 0; }
-  .learn-shell .primary-action::before { content: '＋'; font-size: 22px; line-height: 1; }
-  .mobile-learn-nav {
-    position: fixed; z-index: 120; right: 0; bottom: 0; left: 0;
-    display: grid; grid-template-columns: repeat(3, 1fr); min-height: 64px;
-    padding: 5px max(12px, env(safe-area-inset-right)) calc(5px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
-    border-top: 1px solid var(--jt-line); background: rgba(255, 255, 255, .97);
-    box-shadow: 0 -6px 20px rgba(21, 42, 76, .07); backdrop-filter: blur(14px);
-  }
-  .mobile-learn-nav button { display: grid; min-height: 52px; place-content: center; gap: 2px; border: 0; background: transparent; color: #7d899a; font: inherit; font-size: 11px; }
-  .mobile-learn-nav button span { height: 20px; color: inherit; font-size: 18px; font-weight: 700; line-height: 18px; }
-  .mobile-learn-nav button.active { color: var(--jt-primary); font-weight: 750; }
+  .learn-shell { padding-bottom: 18px; }
+  .learn-shell .header { padding: 0; background: rgba(255, 255, 255, .97); border-bottom: 1px solid var(--jt-line); }
+  .learn-shell .header-inner { min-height: 54px; padding: 7px 12px; border: 0; border-radius: 0; box-shadow: none; }
+  .learn-shell .workspace-switch, .learn-shell .nav-main { display: none; }
+  .learn-shell .header-actions { gap: 5px; }
+  .learn-shell .mobile-hidden { display: none; }
+  .learn-shell .account-button.utility-button { display: inline-flex; min-width: 38px; padding: 3px; font-size: 0; }
+  .learn-shell .account-name { display: none; }
+  .learn-shell .account-avatar { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 50%; background: var(--jt-primary-soft); color: var(--jt-primary); font-size: 13px; font-weight: 750; }
+  .learn-shell .account-button .more-caret { font-size: 14px; }
+  .learn-shell .primary-action { min-width: 66px; margin-left: 0; padding: 0 9px; font-size: 0; box-shadow: none; }
+  .learn-shell .primary-action::before { content: '＋ 录入'; font-size: 12px; line-height: 1; }
+  .mobile-study-tabs { display: grid; grid-template-columns: 1fr 1fr 1.2fr; max-width: 100%; padding: 0 12px; background: rgba(255, 255, 255, .97); }
+  .mobile-study-tabs button { min-height: 40px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: #7d899a; font: inherit; font-size: 13px; font-weight: 650; }
+  .mobile-study-tabs button.active { border-bottom-color: var(--jt-primary); color: var(--jt-primary); }
+  .learn-shell .main { padding-top: 14px; }
 }
 @media (max-width: 560px) {
   .brand-copy { display: none; }
@@ -334,6 +338,7 @@ body {
   .workspace-switch { margin-right: auto; }
   .ws-pill { padding-inline: 11px; }
   .primary-action { padding-inline: 11px; }
+  .learn-shell .account-button.utility-button { display: inline-flex; }
 }
 
 
