@@ -68,11 +68,15 @@ statsRouter.get('/meta', async (req: Request, res: Response) => {
 statsRouter.get('/upcoming', async (req: Request, res: Response) => {
   const workspaceId = requireWorkspaceId(req)
   const date = new Date(); const pad = (value: number) => String(value).padStart(2, '0')
-  const now = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+  // 顶部提示会明确标记今天已过的安排为「进行中/已过」，因此不能在服务端把
+  // 今天较早的记录过滤掉。只按日期过滤也能避免不同历史库中 varchar/timestamptz
+  // 时间字段与当前时间字符串直接比较造成类型冲突。
+  const today = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
   const rows = await getPostgresSql().unsafe(
-    `SELECT i.id,i.round,i.scheduled_at,i.location,a.id AS application_id,a.company,a.position
+    `SELECT i.id,i.round,LEFT(i.scheduled_at::text,16) AS scheduled_at,i.location,a.id AS application_id,a.company,a.position
      FROM interviews i JOIN applications a ON a.workspace_id=i.workspace_id AND a.id=i.application_id
-     WHERE i.workspace_id=$1 AND i.done=false AND i.scheduled_at >= $2 ORDER BY i.scheduled_at ASC LIMIT 30`, [workspaceId, now]
+     WHERE i.workspace_id=$1 AND i.done=false AND i.scheduled_at::text >= $2
+     ORDER BY i.scheduled_at ASC LIMIT 30`, [workspaceId, today]
   ) as Array<Record<string, unknown> & { id: number; round: string; scheduled_at: string }>
   const interviews = rows.map(row => ({
     ...row, key: `interview:${row.id}`, kind: 'interview', title: row.round, event_type: 'interview', time_mode: 'fixed', due_at: row.scheduled_at,
@@ -80,13 +84,31 @@ statsRouter.get('/upcoming', async (req: Request, res: Response) => {
   }))
   // 邮箱 AI 复核后自动创建的招聘日程同样进入顶部提醒；没有关联投递时前端会打开日程页。
   const schedules = await getPostgresSql().unsafe(
-    `SELECT id,application_id,title,company,position,location,event_type,time_mode,scheduled_at,window_start_at,window_end_at,deadline_at,duration_minutes
+    `SELECT id,application_id,title,company,position,location,event_type,time_mode,
+       LEFT(scheduled_at::text,16) AS scheduled_at,
+       LEFT(window_start_at::text,16) AS window_start_at,
+       LEFT(window_end_at::text,16) AS window_end_at,
+       LEFT(deadline_at::text,16) AS deadline_at,
+       duration_minutes,
+       CASE
+         WHEN scheduled_at IS NOT NULL THEN LEFT(scheduled_at::text,16)
+         WHEN window_end_at IS NOT NULL THEN LEFT(window_end_at::text,16)
+         ELSE LEFT(deadline_at::text,16)
+       END AS due_at
      FROM workspace_recruitment_schedules WHERE workspace_id=$1 AND status='active'
-       AND COALESCE(scheduled_at,window_end_at,deadline_at) >= $2
-     ORDER BY COALESCE(scheduled_at,window_end_at,deadline_at) ASC LIMIT 30`, [workspaceId, now]
+       AND CASE
+         WHEN scheduled_at IS NOT NULL THEN scheduled_at::text
+         WHEN window_end_at IS NOT NULL THEN window_end_at::text
+         ELSE deadline_at::text
+       END >= $2
+     ORDER BY CASE
+       WHEN scheduled_at IS NOT NULL THEN scheduled_at::text
+       WHEN window_end_at IS NOT NULL THEN window_end_at::text
+       ELSE deadline_at::text
+     END ASC LIMIT 30`, [workspaceId, today]
   ) as Array<Record<string, unknown> & { id: number; title: string; event_type: string; time_mode: string }>
   const mailSchedules = schedules.map(row => ({
-    ...row, key: `mail-schedule:${row.id}`, kind: 'schedule', due_at: row.scheduled_at ?? row.window_end_at ?? row.deadline_at,
+    ...row, key: `mail-schedule:${row.id}`, kind: 'schedule',
     due_kind: row.scheduled_at ? 'scheduled' : row.window_end_at ? 'window_end' : 'deadline'
   }))
   res.json([...interviews, ...mailSchedules].sort((left, right) => String(left.due_at).localeCompare(String(right.due_at))).slice(0, 30))
