@@ -141,6 +141,13 @@
       "when": 1789210000000,
       "tag": "0019_shared-jobs",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1789392000000,
+      "tag": "0020_study-library",
+      "breakpoints": true
     }
   ]
 }

@@ -282,6 +282,60 @@ export const workspaceTutorMessageFeedback = pgTable('workspace_tutor_message_fe
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
 })
 
+/**
+ * 八股学习资料库。公共八股册的 workspaceId 为 null，仅管理员可修改；
+ * 私有八股册归属一个工作区。题目熟悉度和笔记按 userId 保存，不会形成复习任务。
+ */
+export const studyBooks = pgTable('study_books', {
+  id: serial('id').primaryKey(),
+  workspaceId: uuid('workspace_id').references(() => workspaces.id, { onDelete: 'cascade' }),
+  visibility: varchar('visibility', { length: 16 }).notNull().default('private'),
+  directoryKey: varchar('directory_key', { length: 48 }).notNull(),
+  title: varchar('title', { length: 160 }).notNull(),
+  description: text('description').notNull().default(''),
+  createdByUserId: uuid('created_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+}, table => [
+  index('study_books_directory_idx').on(table.directoryKey, table.visibility, table.id),
+  index('study_books_workspace_idx').on(table.workspaceId, table.updatedAt)
+])
+
+export const studyChapters = pgTable('study_chapters', {
+  id: serial('id').primaryKey(),
+  bookId: integer('book_id').notNull().references(() => studyBooks.id, { onDelete: 'cascade' }),
+  title: varchar('title', { length: 160 }).notNull(),
+  sort: integer('sort').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+}, table => [index('study_chapters_book_sort_idx').on(table.bookId, table.sort, table.id)])
+
+export const studyCards = pgTable('study_cards', {
+  id: serial('id').primaryKey(),
+  chapterId: integer('chapter_id').notNull().references(() => studyChapters.id, { onDelete: 'cascade' }),
+  question: text('question').notNull(),
+  summary: text('summary').notNull().default(''),
+  answer: text('answer').notNull().default(''),
+  followupsJson: text('followups_json').notNull().default('[]'),
+  tagsJson: text('tags_json').notNull().default('[]'),
+  difficulty: varchar('difficulty', { length: 16 }).notNull().default('基础'),
+  sort: integer('sort').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+}, table => [index('study_cards_chapter_sort_idx').on(table.chapterId, table.sort, table.id)])
+
+export const studyCardProgress = pgTable('study_card_progress', {
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  cardId: integer('card_id').notNull().references(() => studyCards.id, { onDelete: 'cascade' }),
+  familiarity: integer('familiarity').notNull().default(0),
+  note: text('note').notNull().default(''),
+  lastOpenedAt: timestamp('last_opened_at', { withTimezone: true }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+}, table => [
+  primaryKey({ columns: [table.userId, table.cardId], name: 'study_card_progress_pkey' }),
+  index('study_card_progress_user_familiarity_idx').on(table.userId, table.familiarity, table.updatedAt)
+])
+
 /** 云端项目档案只引用用户主动上传的 ZIP；源码索引不包含服务器任意目录路径。 */
 export const workspaceProjectProfiles = pgTable('workspace_project_profiles', {
   id: serial('id').primaryKey(), workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),

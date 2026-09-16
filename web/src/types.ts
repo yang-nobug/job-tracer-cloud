@@ -632,3 +632,67 @@ export interface TutorCitation {
   rank: number
   score: number
 }
+
+// ---------- 八股学习资料库 ----------
+
+export const STUDY_DIRECTORY = [
+  { key: 'computer-basics', title: '计算机基础', shortTitle: '通用基础', description: '数据结构、操作系统、网络与 Linux', icon: '◫' },
+  { key: 'language-runtime', title: '编程语言与运行时', shortTitle: '语言与运行时', description: 'Python、Java、Go、C/C++、异步与内存', icon: '⌘' },
+  { key: 'data-backend', title: '数据存储与后端', shortTitle: '数据与后端', description: 'MySQL、Redis、消息队列、分布式系统', icon: '▤' },
+  { key: 'frontend-browser', title: '前端与浏览器', shortTitle: '前端与浏览器', description: '浏览器、Vue、React、工程化与性能', icon: '◌' },
+  { key: 'cloud-engineering', title: '云原生与工程实践', shortTitle: '云原生与工程', description: 'Docker、Kubernetes、CI/CD、排障与安全', icon: '△' },
+  { key: 'ai-llm', title: 'AI 与大模型', shortTitle: 'AI 与大模型', description: 'Transformer、LLM、RAG、Agent 与评测', icon: '✦' },
+  { key: 'project-interview', title: '项目与综合面试', shortTitle: '项目与综合面试', description: '系统设计、项目表达、场景题与行为面试', icon: '◆' },
+  { key: 'custom', title: '自定义专题', shortTitle: '自定义专题', description: '你自己的专项资料与补充内容', icon: '＋' }
+] as const
+
+export type StudyDirectoryKey = (typeof STUDY_DIRECTORY)[number]['key']
+export type StudyVisibility = 'public' | 'private'
+export type StudyDifficulty = '基础' | '进阶' | '深入'
+
+export interface StudyBook {
+  id: number
+  workspace_id: string | null
+  visibility: StudyVisibility
+  directory_key: StudyDirectoryKey
+  title: string
+  description: string
+  created_by_user_id: string | null
+  created_at: string
+  updated_at: string
+  chapter_count: number
+  card_count: number
+  can_edit: boolean
+}
+
+export interface StudyCard {
+  id: number
+  chapter_id: number
+  question: string
+  summary: string
+  answer: string
+  followups: string[]
+  tags: string[]
+  difficulty: StudyDifficulty
+  sort: number
+  familiarity: Mastery
+  note: string
+  last_opened_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface StudyChapter {
+  id: number
+  book_id: number
+  title: string
+  sort: number
+  created_at: string
+  updated_at: string
+  cards: StudyCard[]
+}
+
+export interface StudyBookDetail {
+  book: StudyBook
+  chapters: StudyChapter[]
+}

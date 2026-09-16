@@ -12,6 +12,8 @@ import ReviewsView from './views/ReviewsView.vue'
 import KnowledgeView from './views/KnowledgeView.vue'
 import SourceDetailView from './views/SourceDetailView.vue'
 import SharedJobsView from './views/SharedJobsView.vue'
+import StudyView from './views/StudyView.vue'
+import StudyBookView from './views/StudyBookView.vue'
 
 // 双工作区（需求 3.10）：投递跟踪 /track/*，学习成长 /learn/*
 const router = createRouter({
@@ -28,6 +30,8 @@ const router = createRouter({
     // 学习成长
     { path: '/learn/reviews', component: ReviewsView },
     { path: '/learn/knowledge', component: KnowledgeView },
+    { path: '/learn/study', component: StudyView },
+    { path: '/learn/study/:id', component: StudyBookView },
     // 面经详情独立页（整页浏览，不再用抽屉）
     { path: '/learn/knowledge/:id', component: SourceDetailView },
     // 旧路由重定向（收藏链接不失效）

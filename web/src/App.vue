@@ -143,6 +143,7 @@ watch(
           <template v-else>
             <router-link to="/learn/reviews" class="nav-link" :class="{ active: route.path === '/learn/reviews' }">复盘</router-link>
             <router-link to="/learn/knowledge" class="nav-link" :class="{ active: route.path.startsWith('/learn/knowledge') }">学习</router-link>
+            <router-link to="/learn/study" class="nav-link" :class="{ active: route.path.startsWith('/learn/study') }">八股</router-link>
           </template>
         </nav>
         <div class="header-actions">
@@ -172,6 +173,7 @@ watch(
             </template>
           </el-dropdown>
           <el-button v-if="workspace === 'track'" class="primary-action" type="primary" @click="openCreateForm()">新增投递</el-button>
+          <el-button v-else-if="route.path.startsWith('/learn/study')" class="primary-action study-create" type="primary" @click="router.push('/learn/study?create=1')">新建八股册</el-button>
           <el-button v-else class="primary-action" type="primary" @click="openKnowledgeIngest">录入面经</el-button>
         </div>
       </div>
@@ -179,13 +181,14 @@ watch(
       <nav v-if="workspace === 'learn'" class="mobile-study-tabs" aria-label="学习区导航">
         <button type="button" :class="{ active: route.path === '/learn/reviews' }" @click="router.push('/learn/reviews')">复盘</button>
         <button type="button" :class="{ active: route.path.startsWith('/learn/knowledge') }" @click="router.push('/learn/knowledge')">题库</button>
+        <button type="button" :class="{ active: route.path.startsWith('/learn/study') }" @click="router.push('/learn/study')">八股</button>
         <button type="button" :class="{ active: store.tutorOpen }" @click="toggleTutor(true)">✦ AI 助教</button>
       </nav>
     </header>
 
     <main class="main" :class="{ 'main-learn': workspace === 'learn' }">
       <div class="main-content">
-        <router-view v-if="workspace === 'track' || route.path.startsWith('/learn/knowledge') || route.path.startsWith('/learn/reviews') || authState.user.isAdmin" />
+        <router-view v-if="workspace === 'track' || route.path.startsWith('/learn/knowledge') || route.path.startsWith('/learn/reviews') || route.path.startsWith('/learn/study') || authState.user.isAdmin" />
         <section v-else class="module-migration-note">
           <p class="page-kicker">WORKSPACE MIGRATION</p>
           <h2>学习与 AI 工具正在迁移</h2>
@@ -327,7 +330,8 @@ body {
   .learn-shell .account-button .more-caret { font-size: 14px; }
   .learn-shell .primary-action { min-width: 66px; margin-left: 0; padding: 0 9px; font-size: 0; box-shadow: none; }
   .learn-shell .primary-action::before { content: '＋ 录入'; font-size: 12px; line-height: 1; }
-  .mobile-study-tabs { display: grid; grid-template-columns: 1fr 1fr 1.2fr; max-width: 100%; padding: 0 12px; background: rgba(255, 255, 255, .97); }
+  .learn-shell .primary-action.study-create::before { content: '＋ 新建'; }
+  .mobile-study-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); max-width: 100%; padding: 0 12px; background: rgba(255, 255, 255, .97); }
   .mobile-study-tabs button { min-height: 40px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: #7d899a; font: inherit; font-size: 13px; font-weight: 650; }
   .mobile-study-tabs button.active { border-bottom-color: var(--jt-primary); color: var(--jt-primary); }
   .learn-shell .main { padding-top: 14px; }
