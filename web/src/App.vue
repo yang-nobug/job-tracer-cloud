@@ -84,7 +84,12 @@ onUnmounted(() => {
   if (timer) clearInterval(timer)
 })
 watch(() => store.dataVersion, () => { void loadUpcoming() })
-watch(() => authState.user?.userId, userId => {
+// 登录恢复存在两个独立状态更新：先写入 user，再结束 loading。只监听 user
+// 在页面恢复会话时可能错过触发，从而顶部日程从未请求。等待两个状态都稳定后再启动。
+watch(
+  () => [authState.loading, authState.user?.userId] as const,
+  ([loading, userId]) => {
+  if (loading) return
   if (!userId) {
     upcoming.value = []
     if (timer) clearInterval(timer)
@@ -93,7 +98,9 @@ watch(() => authState.user?.userId, userId => {
   }
   void loadUpcoming()
   if (!timer) timer = setInterval(loadUpcoming, 60_000)
-})
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
