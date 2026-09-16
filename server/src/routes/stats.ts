@@ -80,7 +80,7 @@ statsRouter.get('/upcoming', async (req: Request, res: Response) => {
   }))
   // 邮箱 AI 复核后自动创建的招聘日程同样进入顶部提醒；没有关联投递时前端会打开日程页。
   const schedules = await getPostgresSql().unsafe(
-    `SELECT id,application_id,title,event_type,time_mode,scheduled_at,window_start_at,window_end_at,deadline_at,duration_minutes
+    `SELECT id,application_id,title,company,position,location,event_type,time_mode,scheduled_at,window_start_at,window_end_at,deadline_at,duration_minutes
      FROM workspace_recruitment_schedules WHERE workspace_id=$1 AND status='active'
        AND COALESCE(scheduled_at,window_end_at,deadline_at) >= $2
      ORDER BY COALESCE(scheduled_at,window_end_at,deadline_at) ASC LIMIT 30`, [workspaceId, now]

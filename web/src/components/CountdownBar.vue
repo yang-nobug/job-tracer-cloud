@@ -28,8 +28,9 @@ function timeLabel(item: UpcomingItem): string {
 }
 
 function itemLabel(item: UpcomingItem): string {
-  const company = item.company.trim()
-  const title = item.title.trim()
+  // 旧日程或异常数据可能缺少公司/标题；顶部提醒不应因此整条渲染失败。
+  const company = String(item.company ?? '').trim()
+  const title = String(item.title ?? '').trim()
   if (!company) return title || '未命名日程'
   const normalizedCompany = company.normalize('NFKC').replace(/[^\p{L}\p{N}]/gu, '').toLowerCase()
   const normalizedTitle = title.normalize('NFKC').replace(/[^\p{L}\p{N}]/gu, '').toLowerCase()
