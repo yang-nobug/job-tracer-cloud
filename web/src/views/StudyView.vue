@@ -29,7 +29,6 @@ async function load(): Promise<void> {
   loading.value = true
   try {
     const params = new URLSearchParams()
-    if (directory.value) params.set('directory', directory.value)
     params.set('scope', scope.value)
     books.value = await api.get<StudyBook[]>(`/study/books?${params.toString()}`)
   } catch (error) {
@@ -59,7 +58,7 @@ async function createBook(): Promise<void> {
   }
 }
 
-watch([directory, scope], load)
+watch(scope, load)
 watch(() => route.query.create, value => {
   if (value !== '1') return
   openCreate()
@@ -70,52 +69,34 @@ onMounted(load)
 
 <template>
   <section v-loading="loading" class="study-library">
-    <header class="study-hero">
-      <div>
-        <p class="page-kicker">INTERVIEW KNOWLEDGE MAP</p>
-        <h1>八股文</h1>
-        <p>按知识体系整理资料，随时阅读、背诵和记录自己的理解。</p>
-      </div>
+    <header class="study-topbar">
+      <div><h1>八股文</h1><p>选择一套资料，直接开始阅读或背诵。</p></div>
       <el-button type="primary" @click="openCreate">＋ 新建八股册</el-button>
     </header>
 
-    <section class="directory-grid" aria-label="八股目录">
-      <button
-        v-for="item in directoryCards"
-        :key="item.key"
-        class="directory-card"
-        :class="{ active: directory === item.key }"
-        type="button"
-        @click="selectDirectory(item.key)"
-      >
-        <span class="directory-icon">{{ item.icon }}</span>
-        <span class="directory-copy"><b>{{ item.shortTitle }}</b><small>{{ item.description }}</small></span>
-        <span class="directory-count">{{ item.cardCount }} 题</span>
-      </button>
-    </section>
+    <div class="study-shell">
+      <aside class="study-directory" aria-label="八股目录">
+        <button class="directory-all" :class="{ active: !directory }" type="button" @click="directory = ''"><span>▦</span>全部八股册<small>{{ books.length }}</small></button>
+        <p>知识目录</p>
+        <button v-for="item in directoryCards" :key="item.key" type="button" :class="{ active: directory === item.key }" @click="selectDirectory(item.key)"><span>{{ item.icon }}</span><b>{{ item.shortTitle }}</b><small>{{ item.cardCount }}</small></button>
+      </aside>
 
-    <section class="books-section">
-      <div class="books-heading">
-        <div><h2>{{ selectedDirectory ? selectedDirectory.title : '全部八股册' }}</h2><p>{{ selectedDirectory ? selectedDirectory.description : '公共资料与我的私有资料会一起显示' }}</p></div>
-        <el-radio-group v-model="scope" size="small">
-          <el-radio-button value="all">全部</el-radio-button>
-          <el-radio-button value="public">公共</el-radio-button>
-          <el-radio-button value="mine">我的</el-radio-button>
-        </el-radio-group>
-      </div>
+      <section class="books-section">
+        <div class="books-heading">
+          <div><h2>{{ selectedDirectory ? selectedDirectory.title : '全部八股册' }}</h2><p>{{ selectedDirectory ? selectedDirectory.description : '公共资料与我的私有资料会一起显示' }}</p></div>
+          <el-radio-group v-model="scope" size="small"><el-radio-button value="all">全部</el-radio-button><el-radio-button value="public">公共</el-radio-button><el-radio-button value="mine">我的</el-radio-button></el-radio-group>
+        </div>
 
-      <el-empty v-if="!shownBooks.length && !loading" description="这里还没有八股册，先新建一本开始整理" :image-size="92">
-        <el-button type="primary" @click="openCreate">新建八股册</el-button>
-      </el-empty>
-      <div v-else class="book-grid">
-        <article v-for="book in shownBooks" :key="book.id" class="book-card" role="button" tabindex="0" @click="router.push(`/learn/study/${book.id}`)" @keydown.enter.prevent="router.push(`/learn/study/${book.id}`)">
-          <div class="book-card-head"><span class="book-directory">{{ STUDY_DIRECTORY.find(item => item.key === book.directory_key)?.icon }}</span><el-tag :type="book.visibility === 'public' ? 'primary' : 'info'" effect="plain" size="small">{{ book.visibility === 'public' ? '公共' : '我的' }}</el-tag></div>
-          <h3>{{ book.title }}</h3>
-          <p>{{ book.description || '暂未填写简介' }}</p>
-          <footer><span>{{ book.chapter_count }} 章 · {{ book.card_count }} 题</span><span>进入阅读 ›</span></footer>
-        </article>
-      </div>
-    </section>
+        <el-empty v-if="!shownBooks.length && !loading" description="这里还没有八股册，先新建一本开始整理" :image-size="76"><el-button type="primary" @click="openCreate">新建八股册</el-button></el-empty>
+        <div v-else class="book-list">
+          <article v-for="book in shownBooks" :key="book.id" class="book-row" role="button" tabindex="0" @click="router.push(`/learn/study/${book.id}`)" @keydown.enter.prevent="router.push(`/learn/study/${book.id}`)">
+            <span class="book-directory">{{ STUDY_DIRECTORY.find(item => item.key === book.directory_key)?.icon }}</span>
+            <span class="book-copy"><span><h3>{{ book.title }}</h3><el-tag :type="book.visibility === 'public' ? 'primary' : 'info'" effect="plain" size="small">{{ book.visibility === 'public' ? '公共' : '我的' }}</el-tag></span><p>{{ book.description || '暂未填写简介' }}</p></span>
+            <span class="book-meta">{{ book.chapter_count }} 章<br>{{ book.card_count }} 题</span><span class="book-arrow">›</span>
+          </article>
+        </div>
+      </section>
+    </div>
   </section>
 
   <el-dialog v-model="createOpen" title="新建八股册" width="520px" class="study-create-dialog" append-to-body>
@@ -131,11 +112,8 @@ onMounted(load)
 </template>
 
 <style scoped>
-.study-library { max-width: 1120px; }
-.study-hero { display:flex; align-items:flex-end; justify-content:space-between; gap:20px; margin-bottom:22px; }.study-hero h1 { margin:5px 0 8px; font-size:28px; }.study-hero p:not(.page-kicker) { margin:0; color:var(--jt-text-muted); font-size:14px; }
-.directory-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }.directory-card { min-width:0; padding:14px; border:1px solid var(--jt-line); border-radius:13px; background:#fff; color:var(--jt-text); text-align:left; cursor:pointer; transition:.18s ease; }.directory-card:hover,.directory-card.active { border-color:#a9c6ff; background:#f6f9ff; box-shadow:0 4px 14px rgba(47,111,237,.08); }.directory-icon { display:grid; width:30px; height:30px; place-items:center; border-radius:9px; background:var(--jt-primary-soft); color:var(--jt-primary); font-size:17px; }.directory-copy { display:grid; gap:4px; margin-top:12px; }.directory-copy b { font-size:14px; }.directory-copy small { min-height:30px; color:#8590a0; font-size:11px; line-height:1.4; }.directory-count { display:block; margin-top:10px; color:#5c6f8e; font-size:12px; }
-.books-section { margin-top:28px; }.books-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:13px; }.books-heading h2 { margin:0; font-size:18px; }.books-heading p { margin:5px 0 0; color:#8994a4; font-size:12px; }.book-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }.book-card { display:flex; flex-direction:column; min-height:184px; padding:16px; border:1px solid var(--jt-line); border-radius:14px; background:#fff; cursor:pointer; transition:.18s ease; }.book-card:hover { transform:translateY(-2px); border-color:#b7cffd; box-shadow:0 8px 20px rgba(25,54,96,.08); }.book-card-head { display:flex; align-items:center; justify-content:space-between; }.book-directory { color:var(--jt-primary); font-size:20px; }.book-card h3 { margin:18px 0 7px; font-size:16px; }.book-card p { display:-webkit-box; overflow:hidden; margin:0; color:#778396; font-size:12px; line-height:1.55; -webkit-box-orient:vertical; -webkit-line-clamp:2; }.book-card footer { display:flex; justify-content:space-between; gap:8px; margin-top:auto; padding-top:14px; color:#8a95a5; font-size:11px; }.book-card footer span:last-child { color:var(--jt-primary); }
+.study-library { max-width:1120px; }.study-topbar { display:flex; align-items:center; justify-content:space-between; gap:16px; padding-bottom:16px; border-bottom:1px solid var(--jt-line); }.study-topbar h1 { margin:0; font-size:25px; }.study-topbar p { margin:5px 0 0; color:#7d8999; font-size:13px; }.study-shell { display:grid; grid-template-columns:200px minmax(0,1fr); gap:22px; margin-top:18px; }.study-directory { position:sticky; top:92px; padding:8px; border:1px solid var(--jt-line); border-radius:13px; background:#fff; }.study-directory p { margin:13px 7px 5px; color:#9aa4b2; font-size:11px; font-weight:700; }.study-directory button { display:grid; grid-template-columns:22px minmax(0,1fr) auto; width:100%; align-items:center; gap:6px; min-height:34px; padding:6px 7px; border:0; border-radius:7px; background:transparent; color:#687689; text-align:left; cursor:pointer; }.study-directory button:hover,.study-directory button.active { background:var(--jt-primary-soft); color:var(--jt-primary); }.study-directory button span { color:inherit; font-size:14px; }.study-directory button b { overflow:hidden; font-size:12px; text-overflow:ellipsis; white-space:nowrap; }.study-directory button small { color:#9ca7b6; font-size:11px; }.study-directory .directory-all { color:#53657d; font-weight:700; }.books-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:13px; }.books-heading h2 { margin:0; font-size:18px; }.books-heading p { margin:5px 0 0; color:#8994a4; font-size:12px; }.book-list { display:flex; flex-direction:column; gap:8px; }.book-row { display:grid; grid-template-columns:38px minmax(0,1fr) 65px 16px; align-items:center; gap:12px; min-height:86px; padding:13px 14px; border:1px solid var(--jt-line); border-radius:12px; background:#fff; cursor:pointer; transition:.16s ease; }.book-row:hover { border-color:#b7cffd; box-shadow:0 5px 16px rgba(25,54,96,.07); }.book-directory { display:grid; width:34px; height:34px; place-items:center; border-radius:10px; background:var(--jt-primary-soft); color:var(--jt-primary); font-size:18px; }.book-copy { min-width:0; }.book-copy > span { display:flex; align-items:center; gap:7px; }.book-copy h3 { overflow:hidden; margin:0; color:#2c394c; font-size:15px; text-overflow:ellipsis; white-space:nowrap; }.book-copy p { overflow:hidden; margin:5px 0 0; color:#8590a0; font-size:12px; text-overflow:ellipsis; white-space:nowrap; }.book-meta { color:#8490a1; font-size:11px; line-height:1.55; text-align:right; }.book-arrow { color:#a7b0bc; font-size:25px; }
 .create-tip { margin:0; color:#8b95a5; font-size:12px; line-height:1.55; }
-@media (max-width:820px) { .study-hero { align-items:stretch; flex-direction:column; gap:12px; margin-bottom:16px; }.study-hero h1 { font-size:24px; }.study-hero :deep(.el-button) { width:100%; min-height:40px; }.directory-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }.directory-card { padding:12px; }.directory-copy { margin-top:9px; }.directory-copy small { min-height:45px; }.books-section { margin-top:22px; }.books-heading { align-items:flex-start; flex-direction:column; gap:10px; }.book-grid { grid-template-columns:1fr; gap:9px; }.book-card { min-height:148px; padding:14px; }.book-card:active { transform:scale(.993); }.book-card h3 { margin-top:12px; }.study-create-dialog :deep(.el-dialog__body) { max-height:calc(100dvh - 126px); overflow:auto; }.study-create-dialog :deep(.el-dialog__footer) { padding-bottom:calc(12px + env(safe-area-inset-bottom)); } }
+@media (max-width:820px) { .study-topbar { align-items:stretch; flex-direction:column; padding-bottom:13px; }.study-topbar h1 { font-size:22px; }.study-topbar :deep(.el-button) { width:100%; min-height:40px; }.study-shell { display:block; margin-top:13px; }.study-directory { position:static; display:flex; gap:6px; margin:0 -12px 13px; padding:0 12px 7px; overflow-x:auto; border:0; border-radius:0; background:transparent; scrollbar-width:none; }.study-directory::-webkit-scrollbar { display:none; }.study-directory p { display:none; }.study-directory button,.study-directory .directory-all { display:flex; flex:0 0 auto; align-items:center; gap:5px; min-height:33px; padding:0 10px; border:1px solid #e2e7ee; border-radius:17px; background:#fff; }.study-directory button span { font-size:13px; }.study-directory button b { font-size:12px; }.study-directory button small { display:none; }.books-heading { align-items:flex-start; flex-direction:column; gap:10px; }.book-row { grid-template-columns:34px minmax(0,1fr) 48px 12px; gap:9px; min-height:76px; padding:11px; }.book-row:active { transform:scale(.993); }.book-directory { width:31px; height:31px; font-size:16px; }.book-copy > span { gap:5px; }.book-copy h3 { font-size:14px; }.book-copy p { font-size:11px; }.book-meta { font-size:10px; }.study-create-dialog :deep(.el-dialog__body) { max-height:calc(100dvh - 126px); overflow:auto; }.study-create-dialog :deep(.el-dialog__footer) { padding-bottom:calc(12px + env(safe-area-inset-bottom)); } }
 @media (max-width:820px) { :global(.study-create-dialog) { width:100% !important; height:100dvh; max-height:100dvh; margin:0 !important; border-radius:0; } }
 </style>

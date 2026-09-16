@@ -101,6 +101,10 @@ watch(
   },
   { immediate: true }
 )
+watch(() => route.path, path => {
+  // 八股文以阅读为主，不在进入页面时常驻 AI 助教；仅题目内主动点击才展开。
+  if (path.startsWith('/learn/study') && store.tutorOpen) toggleTutor(false)
+}, { immediate: true })
 </script>
 
 <template>
@@ -178,11 +182,11 @@ watch(
         </div>
       </div>
       <CountdownBar v-if="workspace === 'track'" :items="upcoming" @select="openUpcoming" />
-      <nav v-if="workspace === 'learn'" class="mobile-study-tabs" aria-label="学习区导航">
+      <nav v-if="workspace === 'learn'" class="mobile-study-tabs" :class="{ 'study-only': route.path.startsWith('/learn/study') }" aria-label="学习区导航">
         <button type="button" :class="{ active: route.path === '/learn/reviews' }" @click="router.push('/learn/reviews')">复盘</button>
         <button type="button" :class="{ active: route.path.startsWith('/learn/knowledge') }" @click="router.push('/learn/knowledge')">题库</button>
         <button type="button" :class="{ active: route.path.startsWith('/learn/study') }" @click="router.push('/learn/study')">八股</button>
-        <button type="button" :class="{ active: store.tutorOpen }" @click="toggleTutor(true)">✦ AI 助教</button>
+        <button v-if="!route.path.startsWith('/learn/study')" type="button" :class="{ active: store.tutorOpen }" @click="toggleTutor(true)">✦ AI 助教</button>
       </nav>
     </header>
 
@@ -197,7 +201,7 @@ watch(
         </section>
       </div>
       <!-- 学习区右侧常驻 AI 助教栏：随路由切换不销毁，切到投递区隐藏但保留对话 -->
-      <TutorPanel v-show="workspace === 'learn'" />
+      <TutorPanel v-show="workspace === 'learn' && (!route.path.startsWith('/learn/study') || store.tutorOpen)" />
     </main>
 
     <AppFormDrawer v-model="store.formDrawerOpen" :editing="store.editingApp" />
@@ -332,6 +336,7 @@ body {
   .learn-shell .primary-action::before { content: '＋ 录入'; font-size: 12px; line-height: 1; }
   .learn-shell .primary-action.study-create::before { content: '＋ 新建'; }
   .mobile-study-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); max-width: 100%; padding: 0 12px; background: rgba(255, 255, 255, .97); }
+  .mobile-study-tabs.study-only { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .mobile-study-tabs button { min-height: 40px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: #7d899a; font: inherit; font-size: 13px; font-weight: 650; }
   .mobile-study-tabs button.active { border-bottom-color: var(--jt-primary); color: var(--jt-primary); }
   .learn-shell .main { padding-top: 14px; }

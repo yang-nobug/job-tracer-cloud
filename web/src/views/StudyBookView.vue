@@ -3,12 +3,13 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../api'
+import { askTutor } from '../store'
 import { MASTERY_LABELS, STUDY_DIRECTORY, type Mastery, type StudyBookDetail, type StudyCard, type StudyChapter, type StudyDifficulty } from '../types'
 import RichText from '../components/RichText.vue'
 
 const route = useRoute(); const router = useRouter()
 const detail = ref<StudyBookDetail | null>(null); const loading = ref(true); const selectedChapterId = ref<number | null>(null)
-const reciting = ref(false); const reciteIndex = ref(0); const revealed = ref(false); const chapterOpen = ref(false)
+const reciting = ref(false); const reciteIndex = ref(0); const revealed = ref(false)
 const chapterDialog = ref(false); const cardDialog = ref(false); const saving = ref(false); const editingCardId = ref<number | null>(null)
 const chapterTitle = ref('')
 const cardForm = reactive<{ chapter_id: number | null; question: string; summary: string; answer: string; followups: string; tags: string; difficulty: StudyDifficulty }>({ chapter_id: null, question: '', summary: '', answer: '', followups: '', tags: '', difficulty: '基础' })
@@ -101,7 +102,7 @@ onMounted(load)
               <h3>{{ card.question }}</h3><p v-if="card.summary" class="card-summary">{{ card.summary }}</p>
               <div class="card-answer"><RichText v-if="card.answer" :content="card.answer" /><span v-else>暂未填写详细答案</span></div>
               <div v-if="card.followups.length" class="followups"><b>常见追问</b><ul><li v-for="followup in card.followups" :key="followup">{{ followup }}</li></ul></div>
-              <div class="card-bottom"><div class="familiarity"><span>掌握情况</span><button v-for="option in familiarityLabels" :key="option.value" type="button" :class="['familiarity-'+option.value,{ active: card.familiarity === option.value }]" @click="saveProgress(card, option.value)">{{ option.label }}</button></div><div v-if="detail.book.can_edit" class="edit-actions"><el-button link size="small" @click="openCardDialog(card)">编辑</el-button><el-button link type="danger" size="small" @click="removeCard(card)">删除</el-button></div></div>
+              <div class="card-bottom"><div class="familiarity"><span>掌握情况</span><button v-for="option in familiarityLabels" :key="option.value" type="button" :class="['familiarity-'+option.value,{ active: card.familiarity === option.value }]" @click="saveProgress(card, option.value)">{{ option.label }}</button></div><div class="edit-actions"><el-button link type="primary" size="small" @click="askTutor(card.question)">问 AI</el-button><el-button v-if="detail.book.can_edit" link size="small" @click="openCardDialog(card)">编辑</el-button><el-button v-if="detail.book.can_edit" link type="danger" size="small" @click="removeCard(card)">删除</el-button></div></div>
               <el-input v-model="card.note" type="textarea" :rows="2" maxlength="10000" resize="none" class="note-input" placeholder="我的笔记：记录自己的理解、易错点或表达方式" @blur="saveProgress(card)" />
             </article>
           </template>
