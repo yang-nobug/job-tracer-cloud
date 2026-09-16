@@ -361,4 +361,27 @@ onMounted(async () => {
 .tutor-feedback { border-top: 1px solid #e7ebf0; margin-top: 7px; padding-top: 5px; color: #909399; font-size: 11px; display: flex; align-items: center; gap: 2px; }
 .tutor-input-bar { border-top: 1px solid #f0f2f5; padding: 10px 14px 12px; }
 .tutor-input-actions { display: flex; justify-content: flex-end; margin-top: 8px; }
+
+@media (max-width: 820px) {
+  .tutor-rail {
+    position: fixed; z-index: 130; top: auto; right: 16px; bottom: calc(76px + env(safe-area-inset-bottom));
+    width: 50px; height: 50px; padding: 0; border-radius: 50%; gap: 0;
+    box-shadow: 0 8px 20px rgba(47, 111, 237, .34);
+  }
+  .tutor-rail-icon { font-size: 20px; }
+  .tutor-rail-text { display: none; }
+  .tutor-panel {
+    position: fixed; z-index: 200; inset: 0; width: auto; height: 100dvh;
+    border: 0; border-radius: 0; box-shadow: none;
+  }
+  .tutor-head { min-height: 58px; padding: 10px 12px; }
+  .tutor-title { font-size: 16px; }
+  .tutor-head-actions :deep(.el-button) { padding-inline: 6px; }
+  .tutor-model-bar { padding: 7px 12px; }
+  .tutor-history { max-height: 38%; }
+  .tutor-list { padding: 12px; gap: 11px; }
+  .tutor-bubble { max-width: 93%; padding: 9px 11px; font-size: 14px; }
+  .tutor-input-bar { padding: 9px 12px calc(12px + env(safe-area-inset-bottom)); }
+  .tutor-input-bar :deep(.el-textarea__inner) { min-height: 76px !important; font-size: 16px; }
+}
 </style>

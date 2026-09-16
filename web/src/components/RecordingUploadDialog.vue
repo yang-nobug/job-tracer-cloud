@@ -87,7 +87,7 @@ async function submit(): Promise<void> {
 </script>
 
 <template>
-  <el-dialog v-model="visible" title="上传面试录音" width="480px" :close-on-click-modal="false">
+  <el-dialog v-model="visible" title="上传面试录音" width="480px" :close-on-click-modal="false" class="recording-upload-dialog">
     <el-form label-width="80px">
       <el-form-item label="面试记录">
         <el-select v-model="interviewId" placeholder="选这场录音对应的面试" filterable style="width: 100%">
@@ -161,4 +161,11 @@ async function submit(): Promise<void> {
 .file-size { color: #909399; font-size: 12px; }
 .flow-tip { color: #909399; font-size: 12px; line-height: 1.6; margin: 4px 0 0 80px; }
 .el-alert { margin-top: 14px; }
+@media (max-width: 820px) {
+  :global(.recording-upload-dialog) { width: 100% !important; height: 100dvh; max-height: 100dvh; margin: 0 !important; border-radius: 0; }
+  :global(.recording-upload-dialog .el-dialog__header) { margin-right: 0; padding: 17px 48px 14px 16px; border-bottom: 1px solid #ebeef5; }
+  :global(.recording-upload-dialog .el-dialog__body) { max-height: calc(100dvh - 126px); padding: 16px; overflow-y: auto; }
+  :global(.recording-upload-dialog .el-dialog__footer) { padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid #ebeef5; }
+  .flow-tip { margin-left: 0; }.drop-zone { min-height: 150px; }.drop-tip { font-size: 14px; text-align: center; line-height: 1.5; }.drop-sub { text-align: center; line-height: 1.5; }
+}
 </style>

@@ -183,9 +183,9 @@ function openSource(sourceId: number | null): void {
         v-model="keyword"
         placeholder="搜问题 / 答案 / 公司"
         clearable
-        style="width: 210px"
+        class="kb-search"
       />
-      <el-select v-if="viewMode === 'items'" v-model="category" placeholder="分类" clearable style="width: 110px">
+      <el-select v-if="viewMode === 'items'" v-model="category" placeholder="分类" clearable class="kb-category">
         <el-option v-for="c in KNOWLEDGE_CATEGORIES" :key="c" :value="c" :label="c" />
       </el-select>
       <span class="kb-spacer" />
@@ -353,5 +353,33 @@ function openSource(sourceId: number | null): void {
 .kb-src-foot { display: flex; justify-content: space-between; align-items: center; }
 .kb-src-count { font-size: 13px; color: #606266; }
 .kb-src-date { color: #c0c4cc; font-size: 12px; }
+
+@media (max-width: 820px) {
+  .kb-view { max-width: none; }
+  .kb-toolbar { align-items: stretch; gap: 9px; margin-bottom: 12px; }
+  .kb-toolbar :deep(.el-radio-group) { display: flex; width: 100%; }
+  .kb-toolbar :deep(.el-radio-button) { flex: 1; }
+  .kb-toolbar :deep(.el-radio-button__inner) { width: 100%; padding-inline: 8px; }
+  .kb-search { width: 100%; }
+  .kb-category { flex: 1; min-width: 0; }
+  .kb-spacer { display: none; }
+  .kb-toolbar > .el-button { width: 100%; min-height: 40px; margin: 0; }
+  .kb-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+  .kb-stat-card { padding: 11px 9px; }
+  .kb-stat-value { font-size: 22px; }
+  .kb-item { gap: 8px; padding: 12px; border-radius: 12px; }
+  .kb-check { padding-top: 3px; }
+  .kb-item-head { align-items: flex-start; flex-wrap: wrap; gap: 7px; }
+  .kb-question { flex: 1 0 calc(100% - 74px); font-size: 15px; }
+  .mastery-pill { margin-left: auto; }
+  .kb-item-head :deep(.el-button) { min-height: 30px; margin-right: 2px; padding: 3px 5px; }
+  .kb-toggle { align-self: center; margin-left: auto; }
+  .kb-answer { margin-top: 10px; padding-top: 10px; font-size: 14px; line-height: 1.7; }
+  .kb-source { line-height: 1.5; white-space: normal; }
+  .kb-sources { grid-template-columns: 1fr; gap: 9px; }
+  .kb-source-card { min-height: 112px; padding: 14px; border-radius: 12px; }
+  .kb-source-card:active { transform: scale(.992); background: #f8faff; }
+  .kb-src-company { font-size: 15px; line-height: 1.45; }
+}
 
 </style>

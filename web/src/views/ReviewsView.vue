@@ -222,4 +222,21 @@ onUnmounted(() => {
 .r-spacer { flex: 1; }
 .r-time { color: #909399; font-size: 13px; }
 .r-position { color: #606266; font-size: 13px; margin-top: 4px; }
+
+@media (max-width: 820px) {
+  .toolbar { align-items: stretch; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+  .toolbar :deep(.el-button) { min-height: 40px; margin: 0; }
+  .toolbar-tip { padding: 0 2px; line-height: 1.5; }
+  .recording-list, .review-list { max-width: none; gap: 9px; }
+  .rec-card :deep(.el-card__body) { padding: 12px; }
+  .r-row { gap: 6px; }
+  .r-company { max-width: calc(100% - 100px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rec-name { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .r-spacer { display: none; }
+  .r-row :deep(.el-button) { min-height: 30px; padding-inline: 5px; }
+  .r-time { margin-left: auto; font-size: 12px; }
+  .review-card :deep(.el-card__body) { padding: 13px; }
+  .r-position { margin-top: 7px; line-height: 1.5; }
+  .transcript { max-height: 42dvh; font-size: 13px; }
+}
 </style>

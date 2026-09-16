@@ -93,6 +93,7 @@ function onClose(): void {
     :title="title"
     width="760px"
     top="6vh"
+    class="review-editor-dialog"
     destroy-on-close
     @update:model-value="onClose"
   >
@@ -122,7 +123,7 @@ function onClose(): void {
       </div>
     </template>
 
-    <el-dialog v-model="adviceOpen" title="✨ AI 点评" width="680px" append-to-body top="6vh">
+    <el-dialog v-model="adviceOpen" title="✨ AI 点评" width="680px" append-to-body top="6vh" class="review-advice-dialog">
       <RichText v-loading="advising" class="advice-body" :content="advising ? '' : advice" />
     </el-dialog>
   </el-dialog>
@@ -135,4 +136,13 @@ function onClose(): void {
 .footer-bar { display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 10px; }
 .hint { font-size: 12px; color: #909399; }
 .advice-body { min-height: 200px; max-height: 70vh; overflow: auto; }
+@media (max-width: 820px) {
+  :global(.review-editor-dialog), :global(.review-advice-dialog) { width: 100% !important; height: 100dvh; max-height: 100dvh; margin: 0 !important; border-radius: 0; }
+  :global(.review-editor-dialog .el-dialog__header), :global(.review-advice-dialog .el-dialog__header) { margin-right: 0; padding: 17px 48px 14px 16px; border-bottom: 1px solid #ebeef5; }
+  :global(.review-editor-dialog .el-dialog__body), :global(.review-advice-dialog .el-dialog__body) { max-height: calc(100dvh - 126px); padding: 14px 12px; overflow-y: auto; }
+  :global(.review-editor-dialog .el-dialog__footer) { padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid #ebeef5; }
+  .edit-grid { grid-template-columns: 1fr; }.edit-area :deep(textarea) { min-height: 42dvh; }.preview { max-height: none; padding: 12px; }
+  .footer-bar { align-items: stretch; flex-direction: column; }.hint { line-height: 1.45; }.footer-bar > div { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }.footer-bar :deep(.el-button) { min-height: 38px; margin-left: 0; }
+  .advice-body { min-height: 0; max-height: none; }
+}
 </style>

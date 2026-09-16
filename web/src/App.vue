@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from './api'
-import { store, openCreateForm, openKnowledgeIngest } from './store'
+import { store, openCreateForm, openKnowledgeIngest, toggleTutor } from './store'
 import type { UpcomingItem } from './types'
 import CountdownBar from './components/CountdownBar.vue'
 import AppFormDrawer from './components/AppFormDrawer.vue'
@@ -106,7 +106,7 @@ watch(
 <template>
   <div v-if="authState.loading" class="auth-loading">正在检查登录状态…</div>
   <AuthGate v-else-if="!authState.user" />
-  <div v-else class="app-shell">
+  <div v-else class="app-shell" :class="{ 'learn-shell': workspace === 'learn' }">
     <header class="header">
       <div class="header-inner">
         <button class="brand" type="button" aria-label="返回求职看板" @click="router.push('/track/kanban')">
@@ -188,6 +188,13 @@ watch(
       <TutorPanel v-show="workspace === 'learn'" />
     </main>
 
+    <!-- 手机端只服务学习主流程：复盘、题库和 AI 助教。投递管理仍沿用桌面页面。 -->
+    <nav v-if="workspace === 'learn'" class="mobile-learn-nav" aria-label="学习区导航">
+      <button type="button" :class="{ active: route.path === '/learn/reviews' }" @click="router.push('/learn/reviews')"><span>◷</span>复盘</button>
+      <button type="button" :class="{ active: route.path.startsWith('/learn/knowledge') }" @click="router.push('/learn/knowledge')"><span>▤</span>题库</button>
+      <button type="button" :class="{ active: store.tutorOpen }" @click="toggleTutor(true)"><span>✦</span>助教</button>
+    </nav>
+
     <AppFormDrawer v-model="store.formDrawerOpen" :editing="store.editingApp" />
     <DetailDrawer :app-id="store.detailId" @close="store.detailId = null" />
     <SourceIngestDialog />
@@ -222,6 +229,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 .app-shell { min-height: 100vh; }
+.mobile-learn-nav { display: none; }
 .auth-loading { min-height: 100vh; display: grid; place-items: center; color: #728095; background: var(--jt-bg); font-size: 14px; }
 
 .header {
@@ -304,6 +312,21 @@ body {
   .primary-action { min-width: auto; margin-left: 2px; }
   .main { padding: 16px 12px 24px; }
   .main-learn { display: block; }
+  .learn-shell { padding-bottom: calc(70px + env(safe-area-inset-bottom)); }
+  .learn-shell .header-actions .utility-button,
+  .learn-shell .account-button { display: none; }
+  .learn-shell .primary-action { min-width: 42px; padding-inline: 10px; font-size: 0; }
+  .learn-shell .primary-action::before { content: '＋'; font-size: 22px; line-height: 1; }
+  .mobile-learn-nav {
+    position: fixed; z-index: 120; right: 0; bottom: 0; left: 0;
+    display: grid; grid-template-columns: repeat(3, 1fr); min-height: 64px;
+    padding: 5px max(12px, env(safe-area-inset-right)) calc(5px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+    border-top: 1px solid var(--jt-line); background: rgba(255, 255, 255, .97);
+    box-shadow: 0 -6px 20px rgba(21, 42, 76, .07); backdrop-filter: blur(14px);
+  }
+  .mobile-learn-nav button { display: grid; min-height: 52px; place-content: center; gap: 2px; border: 0; background: transparent; color: #7d899a; font: inherit; font-size: 11px; }
+  .mobile-learn-nav button span { height: 20px; color: inherit; font-size: 18px; font-weight: 700; line-height: 18px; }
+  .mobile-learn-nav button.active { color: var(--jt-primary); font-weight: 750; }
 }
 @media (max-width: 560px) {
   .brand-copy { display: none; }

@@ -537,4 +537,31 @@ async function removeItem(itemId: number): Promise<void> {
   display: block;
 }
 .src-image-box img:hover { box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12); }
+
+@media (max-width: 820px) {
+  .src-page { max-width: none; }
+  .src-sticky { top: 58px; gap: 7px; margin: -8px 0 8px; padding: 8px 0; }
+  .src-company { max-width: calc(100% - 78px); overflow: hidden; text-overflow: ellipsis; font-size: 16px; }
+  .src-mini-stats { margin-left: auto; font-size: 12px; }
+  .src-header { margin-bottom: 14px; }
+  .src-sub { gap: 7px; font-size: 13px; }
+  .src-date { width: 100%; margin-left: 0; }
+  .src-item { padding: 12px; border-radius: 12px; }
+  .src-item-head { align-items: flex-start; flex-wrap: wrap; gap: 7px; }
+  .src-question { flex: 1 0 calc(100% - 72px); font-size: 15px; }
+  .src-spacer { display: none; }
+  .src-item-head .mastery-pill { margin-left: auto; }
+  .src-item-head :deep(.el-button) { min-height: 30px; margin-right: 2px; padding: 3px 5px; }
+  .src-toggle { align-self: center; margin-left: auto; }
+  .src-answer { margin-top: 10px; padding-top: 10px; font-size: 14px; line-height: 1.7; }
+  .item-edit-head { align-items: flex-start; flex-direction: column; gap: 3px; }
+  .item-edit-actions { display: grid; grid-template-columns: 1fr 1fr; }
+  .item-edit-actions :deep(.el-button) { margin-left: 0; }
+  .src-gallery { margin-top: 20px; }
+  .src-gallery-bar { gap: 8px; }
+  .src-images { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .src-image-box { width: auto; }
+  .src-image-box img { width: 100%; height: 116px; }
+  .version-head { align-items: flex-start; flex-direction: column; gap: 7px; }
+}
 </style>
