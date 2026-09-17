@@ -33,6 +33,7 @@ function exposeBook(row: Record<string, unknown>, canEdit: boolean): Record<stri
     ...row,
     chapter_count: numberOr(row.chapter_count),
     card_count: numberOr(row.card_count),
+    document_count: numberOr(row.document_count),
     can_edit: canEdit
   }
 }
@@ -50,7 +51,8 @@ async function findAccessibleBook(id: number, workspaceId: string): Promise<Book
   const rows = await getPostgresSql().unsafe(
     `SELECT b.*,
       (SELECT COUNT(*)::int FROM study_chapters c WHERE c.book_id=b.id) AS chapter_count,
-      (SELECT COUNT(*)::int FROM study_cards q JOIN study_chapters c ON c.id=q.chapter_id WHERE c.book_id=b.id) AS card_count
+      (SELECT COUNT(*)::int FROM study_cards q JOIN study_chapters c ON c.id=q.chapter_id WHERE c.book_id=b.id) AS card_count,
+      (SELECT COUNT(*)::int FROM study_documents d JOIN study_chapters c ON c.id=d.chapter_id WHERE c.book_id=b.id) AS document_count
     FROM study_books b
     WHERE b.id=$1 AND (b.visibility='public' OR b.workspace_id=$2)`,
     [id, workspaceId]
@@ -114,7 +116,8 @@ studyRouter.get('/books', async (req: Request, res: Response) => {
   const rows = await getPostgresSql().unsafe(
     `SELECT b.*,
       (SELECT COUNT(*)::int FROM study_chapters c WHERE c.book_id=b.id) AS chapter_count,
-      (SELECT COUNT(*)::int FROM study_cards q JOIN study_chapters c ON c.id=q.chapter_id WHERE c.book_id=b.id) AS card_count
+      (SELECT COUNT(*)::int FROM study_cards q JOIN study_chapters c ON c.id=q.chapter_id WHERE c.book_id=b.id) AS card_count,
+      (SELECT COUNT(*)::int FROM study_documents d JOIN study_chapters c ON c.id=d.chapter_id WHERE c.book_id=b.id) AS document_count
      FROM study_books b
      WHERE (b.visibility='public' OR b.workspace_id=$1)
        AND ($2::text IS NULL OR b.directory_key=$2)
@@ -263,7 +266,7 @@ studyRouter.post('/books/:id/ai-parse', async (req: Request, res: Response) => {
   const workspaceId = requireWorkspaceId(req); const id = parsePositiveId(req.params.id, '八股册编号')
   const book = id ? await findAccessibleBook(id, workspaceId) : null
   if (!book) return res.status(404).json({ message: '八股册不存在' }); if (!canEdit(req, book, workspaceId)) return rejectReadOnly(res)
-  const raw = text(req.body?.text, 60_000); const chapterId = parsePositiveId(req.body?.chapter_id, '目录编号')
+  const raw = text(req.body?.text, 20_000); const chapterId = parsePositiveId(req.body?.chapter_id, '目录编号')
   const destination = chapterId ? await bookForChapter(chapterId, workspaceId) : null
   if (!raw) return res.status(422).json({ message: '请先粘贴需要整理的资料' })
   if (!destination || destination.id !== book.id) return res.status(422).json({ message: '请选择当前八股册中的目录' })
@@ -271,7 +274,14 @@ studyRouter.post('/books/:id/ai-parse', async (req: Request, res: Response) => {
     title: { type: 'string', minLength: 1, maxLength: 240 }, summary: { type: 'string', maxLength: 4000 }, content: { type: 'string', minLength: 1, maxLength: 80000 }
   } }
   try {
-    const result = await completeStructured([{ role: 'system', content: '你是面试知识整理助手。把用户主动提供的资料整理成准确、可阅读的中文 Markdown 文章。保留事实和关键术语；使用二级、三级标题、列表、必要的代码块；不要编造资料中没有的结论；不要输出题卡、前言或 JSON 以外的内容。' }, { role: 'user', content: `<source_material>\n${raw}\n</source_material>` }], { task: 'knowledgeExtract', schemaName: 'study_document', schema, validate: value => value as { title: string; summary: string; content: string }, workspaceId })
+    const result = await completeStructured([{ role: 'system', content: `你是面试知识整理助手。把用户主动提供的资料整理成准确、可阅读的中文 Markdown 文章。保留事实和关键术语；使用二级、三级标题、列表、必要的代码块；不要编造资料中没有的结论。只返回符合下列 JSON Schema 的 JSON 对象，不要 Markdown 围栏、解释、前言或题卡。\n\nJSON Schema:\n${JSON.stringify(schema)}` }, { role: 'user', content: `<untrusted_source_material>\n${raw}\n</untrusted_source_material>` }], { task: 'knowledgeExtract', schemaName: 'study_document', schema, validate: value => {
+      if (!value || typeof value !== 'object') throw new Error('结果不是对象')
+      const item = value as Record<string, unknown>
+      if (typeof item.title !== 'string' || !item.title.trim()) throw new Error('缺少文章标题')
+      if (typeof item.summary !== 'string') throw new Error('摘要格式错误')
+      if (typeof item.content !== 'string' || !item.content.trim()) throw new Error('缺少文章正文')
+      return { title: item.title, summary: item.summary, content: item.content }
+    }, workspaceId })
     res.json({ title: text(result.value.title, 240), summary: text(result.value.summary, 4000), content: text(result.value.content, 80_000) })
   } catch (error) { res.status(error instanceof AiError ? error.statusCode : 502).json({ message: error instanceof Error ? error.message : 'AI 解析失败' }) }
 })

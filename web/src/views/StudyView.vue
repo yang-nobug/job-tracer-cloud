@@ -10,7 +10,8 @@ const route = useRoute()
 const router = useRouter()
 const loading = ref(false)
 const books = ref<StudyBook[]>([])
-const directory = ref<StudyDirectoryKey | ''>('')
+/** 必须在一个知识目录内浏览与新建，避免“全部八股册”成为无意义的重复入口。 */
+const directory = ref<StudyDirectoryKey>('computer-basics')
 const scope = ref<'all' | 'public' | 'mine'>('all')
 const createOpen = ref(false)
 const saving = ref(false)
@@ -20,10 +21,10 @@ const form = reactive<{ title: string; directory_key: StudyDirectoryKey; descrip
 
 const directoryCards = computed(() => STUDY_DIRECTORY.map(item => {
   const matched = books.value.filter(book => book.directory_key === item.key)
-  return { ...item, bookCount: matched.length, cardCount: matched.reduce((sum, book) => sum + book.card_count, 0) }
+  return { ...item, bookCount: matched.length, contentCount: matched.reduce((sum, book) => sum + book.card_count + book.document_count, 0) }
 }))
-const shownBooks = computed(() => directory.value ? books.value.filter(book => book.directory_key === directory.value) : books.value)
-const selectedDirectory = computed(() => STUDY_DIRECTORY.find(item => item.key === directory.value) ?? null)
+const shownBooks = computed(() => books.value.filter(book => book.directory_key === directory.value))
+const selectedDirectory = computed(() => STUDY_DIRECTORY.find(item => item.key === directory.value)!)
 
 async function load(): Promise<void> {
   loading.value = true
@@ -37,11 +38,9 @@ async function load(): Promise<void> {
     loading.value = false
   }
 }
-function selectDirectory(key: StudyDirectoryKey): void {
-  directory.value = directory.value === key ? '' : key
-}
+function selectDirectory(key: StudyDirectoryKey): void { directory.value = key }
 function openCreate(): void {
-  form.title = ''; form.directory_key = directory.value || 'computer-basics'; form.description = ''; form.visibility = 'private'
+  form.title = ''; form.directory_key = directory.value; form.description = ''; form.visibility = 'private'
   createOpen.value = true
 }
 async function createBook(): Promise<void> {
@@ -76,14 +75,13 @@ onMounted(load)
 
     <div class="study-shell">
       <aside class="study-directory" aria-label="八股目录">
-        <button class="directory-all" :class="{ active: !directory }" type="button" @click="directory = ''"><span>▦</span>全部八股册<small>{{ books.length }}</small></button>
         <p>知识目录</p>
-        <button v-for="item in directoryCards" :key="item.key" type="button" :class="{ active: directory === item.key }" @click="selectDirectory(item.key)"><span>{{ item.icon }}</span><b>{{ item.shortTitle }}</b><small>{{ item.cardCount }}</small></button>
+        <button v-for="item in directoryCards" :key="item.key" type="button" :class="{ active: directory === item.key }" @click="selectDirectory(item.key)"><span>{{ item.icon }}</span><b>{{ item.title }}</b><small>{{ item.bookCount }} 册 · {{ item.contentCount }} 内容</small></button>
       </aside>
 
       <section class="books-section">
         <div class="books-heading">
-          <div><h2>{{ selectedDirectory ? selectedDirectory.title : '全部八股册' }}</h2><p>{{ selectedDirectory ? selectedDirectory.description : '公共资料与我的私有资料会一起显示' }}</p></div>
+          <div><h2>{{ selectedDirectory.title }}</h2><p>{{ selectedDirectory.description }}</p></div>
           <el-radio-group v-model="scope" size="small"><el-radio-button value="all">全部</el-radio-button><el-radio-button value="public">公共</el-radio-button><el-radio-button value="mine">我的</el-radio-button></el-radio-group>
         </div>
 
@@ -92,7 +90,7 @@ onMounted(load)
           <article v-for="book in shownBooks" :key="book.id" class="book-row" role="button" tabindex="0" @click="router.push(`/learn/study/${book.id}`)" @keydown.enter.prevent="router.push(`/learn/study/${book.id}`)">
             <span class="book-directory">{{ STUDY_DIRECTORY.find(item => item.key === book.directory_key)?.icon }}</span>
             <span class="book-copy"><span><h3>{{ book.title }}</h3><el-tag :type="book.visibility === 'public' ? 'primary' : 'info'" effect="plain" size="small">{{ book.visibility === 'public' ? '公共' : '我的' }}</el-tag></span><p>{{ book.description || '暂未填写简介' }}</p></span>
-            <span class="book-meta">{{ book.chapter_count }} 章<br>{{ book.card_count }} 题</span><span class="book-arrow">›</span>
+            <span class="book-meta">{{ book.chapter_count }} 目录<br>{{ book.document_count }} 文章 · {{ book.card_count }} 题</span><span class="book-arrow">›</span>
           </article>
         </div>
       </section>

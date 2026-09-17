@@ -662,6 +662,7 @@ export interface StudyBook {
   updated_at: string
   chapter_count: number
   card_count: number
+  document_count: number
   can_edit: boolean
 }
 
