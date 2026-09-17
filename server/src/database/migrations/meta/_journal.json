@@ -148,6 +148,13 @@
       "when": 1789392000000,
       "tag": "0020_study-library",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1789478400000,
+      "tag": "0021_study-nested-directories",
+      "breakpoints": true
     }
   ]
 }

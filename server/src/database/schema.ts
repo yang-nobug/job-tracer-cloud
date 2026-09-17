@@ -304,11 +304,16 @@ export const studyBooks = pgTable('study_books', {
 export const studyChapters = pgTable('study_chapters', {
   id: serial('id').primaryKey(),
   bookId: integer('book_id').notNull().references(() => studyBooks.id, { onDelete: 'cascade' }),
+  /** 目录可嵌套；NULL 表示八股册的顶层目录。 */
+  parentId: integer('parent_id').references(() => studyChapters.id, { onDelete: 'cascade' }),
   title: varchar('title', { length: 160 }).notNull(),
   sort: integer('sort').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
-}, table => [index('study_chapters_book_sort_idx').on(table.bookId, table.sort, table.id)])
+}, table => [
+  index('study_chapters_book_sort_idx').on(table.bookId, table.sort, table.id),
+  index('study_chapters_parent_sort_idx').on(table.parentId, table.sort, table.id)
+])
 
 export const studyCards = pgTable('study_cards', {
   id: serial('id').primaryKey(),

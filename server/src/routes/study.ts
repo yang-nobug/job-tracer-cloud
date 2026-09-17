@@ -77,6 +77,30 @@ async function nextSort(table: 'study_chapters' | 'study_cards', foreignKey: 'bo
   const rows = await getPostgresSql().unsafe(`SELECT COALESCE(MAX(sort), 0)::int + 1 AS next_sort FROM ${table} WHERE ${foreignKey}=$1`, [id])
   return numberOr(rows[0]?.next_sort, 1)
 }
+async function nextChapterSort(bookId: number, parentId: number | null): Promise<number> {
+  const rows = await getPostgresSql().unsafe(
+    'SELECT COALESCE(MAX(sort), 0)::int + 1 AS next_sort FROM study_chapters WHERE book_id=$1 AND parent_id IS NOT DISTINCT FROM $2',
+    [bookId, parentId]
+  )
+  return numberOr(rows[0]?.next_sort, 1)
+}
+async function validateDirectoryParent(bookId: number, parentId: number | null, movingId?: number): Promise<string | null> {
+  if (parentId === null) return null
+  if (movingId === parentId) return '目录不能移动到自身之下'
+  const sql = getPostgresSql()
+  const parentRows = await sql.unsafe('SELECT id,book_id FROM study_chapters WHERE id=$1', [parentId]) as Array<Record<string, unknown>>
+  if (!parentRows[0] || numberOr(parentRows[0].book_id) !== bookId) return '父目录必须属于当前八股册'
+  if (!movingId) return null
+  const rows = await sql.unsafe(
+    `WITH RECURSIVE ancestors AS (
+       SELECT id,parent_id FROM study_chapters WHERE id=$1
+       UNION ALL
+       SELECT c.id,c.parent_id FROM study_chapters c JOIN ancestors a ON c.id=a.parent_id
+     ) SELECT 1 FROM ancestors WHERE id=$2 LIMIT 1`,
+    [parentId, movingId]
+  )
+  return rows.length ? '目录不能移动到自己的子目录中' : null
+}
 function rejectReadOnly(res: Response): boolean {
   res.status(403).json({ message: '这套公共八股册仅管理员可修改' })
   return false
@@ -164,16 +188,27 @@ studyRouter.post('/books/:id/chapters', async (req: Request, res: Response) => {
   const book = id ? await findAccessibleBook(id, workspaceId) : null; const title = text(req.body?.title, 160)
   if (!book) return res.status(404).json({ message: '八股册不存在' }); if (!canEdit(req, book, workspaceId)) return rejectReadOnly(res)
   if (!title) return res.status(422).json({ message: '章节名称不能为空' })
-  const rows = await getPostgresSql().unsafe('INSERT INTO study_chapters (book_id,title,sort) VALUES ($1,$2,$3) RETURNING *', [id, title, await nextSort('study_chapters', 'book_id', id)])
+  const parentId = req.body?.parent_id == null ? null : parsePositiveId(req.body.parent_id, '父目录编号')
+  if (req.body?.parent_id != null && !parentId) return res.status(422).json({ message: '父目录编号无效' })
+  const parentError = await validateDirectoryParent(id, parentId)
+  if (parentError) return res.status(422).json({ message: parentError })
+  const rows = await getPostgresSql().unsafe('INSERT INTO study_chapters (book_id,parent_id,title,sort) VALUES ($1,$2,$3,$4) RETURNING *', [id, parentId, title, await nextChapterSort(id, parentId)])
   res.status(201).json(rows[0])
 })
 
 studyRouter.put('/chapters/:id', async (req: Request, res: Response) => {
   const workspaceId = requireWorkspaceId(req); const id = parsePositiveId(req.params.id, '章节编号')
-  const book = id ? await bookForChapter(id, workspaceId) : null; const title = text(req.body?.title, 160)
+  const book = id ? await bookForChapter(id, workspaceId) : null
   if (!book) return res.status(404).json({ message: '章节不存在' }); if (!canEdit(req, book, workspaceId)) return rejectReadOnly(res)
+  const current = await getPostgresSql().unsafe('SELECT * FROM study_chapters WHERE id=$1', [id]) as Array<Record<string, unknown>>
+  if (!current[0]) return res.status(404).json({ message: '章节不存在' })
+  const title = Object.hasOwn(req.body ?? {}, 'title') ? text(req.body.title, 160) : String(current[0].title)
   if (!title) return res.status(422).json({ message: '章节名称不能为空' })
-  const rows = await getPostgresSql().unsafe('UPDATE study_chapters SET title=$2,updated_at=now() WHERE id=$1 RETURNING *', [id, title])
+  const parentId = Object.hasOwn(req.body ?? {}, 'parent_id') ? (req.body.parent_id == null ? null : parsePositiveId(req.body.parent_id, '父目录编号')) : numberOr(current[0].parent_id, 0) || null
+  if (Object.hasOwn(req.body ?? {}, 'parent_id') && req.body.parent_id != null && !parentId) return res.status(422).json({ message: '父目录编号无效' })
+  const parentError = await validateDirectoryParent(Number(book.id), parentId, id)
+  if (parentError) return res.status(422).json({ message: parentError })
+  const rows = await getPostgresSql().unsafe('UPDATE study_chapters SET parent_id=$2,title=$3,updated_at=now() WHERE id=$1 RETURNING *', [id, parentId, title])
   res.json(rows[0])
 })
 

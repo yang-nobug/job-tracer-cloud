@@ -685,6 +685,8 @@ export interface StudyCard {
 export interface StudyChapter {
   id: number
   book_id: number
+  /** NULL 代表八股册根目录下的节点；可继续嵌套。 */
+  parent_id: number | null
   title: string
   sort: number
   created_at: string
