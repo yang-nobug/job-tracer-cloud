@@ -2,6 +2,7 @@ import { Router } from 'express'
 import type { Request, Response } from 'express'
 import { getPostgresSql } from '../database/client.js'
 import { parsePositiveId, requireWorkspaceId } from '../auth/workspace.js'
+import { AiError, completeStructured } from '../ai.js'
 
 /** 固定知识地图。它只负责目录归类，不会自动生成学习任务或复习提醒。 */
 export const STUDY_DIRECTORY_KEYS = [
@@ -73,7 +74,7 @@ async function bookForCard(cardId: number, workspaceId: string): Promise<BookRow
   )
   return rows[0] as BookRow | undefined ?? null
 }
-async function nextSort(table: 'study_chapters' | 'study_cards', foreignKey: 'book_id' | 'chapter_id', id: number): Promise<number> {
+async function nextSort(table: 'study_chapters' | 'study_cards' | 'study_documents', foreignKey: 'book_id' | 'chapter_id', id: number): Promise<number> {
   const rows = await getPostgresSql().unsafe(`SELECT COALESCE(MAX(sort), 0)::int + 1 AS next_sort FROM ${table} WHERE ${foreignKey}=$1`, [id])
   return numberOr(rows[0]?.next_sort, 1)
 }
@@ -143,21 +144,28 @@ studyRouter.get('/books/:id', async (req: Request, res: Response) => {
   const book = await findAccessibleBook(id, workspaceId)
   if (!book) return res.status(404).json({ message: '八股册不存在或无权访问' })
   const sql = getPostgresSql()
-  const [chapters, cards] = await Promise.all([
+  const [chapters, cards, documents] = await Promise.all([
     sql.unsafe('SELECT * FROM study_chapters WHERE book_id=$1 ORDER BY sort,id', [id]),
     sql.unsafe(`SELECT q.*,COALESCE(p.familiarity,0) AS familiarity,COALESCE(p.note,'') AS note,p.last_opened_at
       FROM study_cards q JOIN study_chapters c ON c.id=q.chapter_id
       LEFT JOIN study_card_progress p ON p.card_id=q.id AND p.user_id=$2
       WHERE c.book_id=$1 ORDER BY c.sort,c.id,q.sort,q.id`, [id, req.auth!.userId])
+    , sql.unsafe(`SELECT d.* FROM study_documents d JOIN study_chapters c ON c.id=d.chapter_id
+      WHERE c.book_id=$1 ORDER BY c.sort,c.id,d.sort,d.id`, [id])
   ])
   const cardMap = new Map<number, Record<string, unknown>[]>()
   for (const row of cards as Record<string, unknown>[]) {
     const chapterId = numberOr(row.chapter_id)
     cardMap.set(chapterId, [...(cardMap.get(chapterId) ?? []), exposeCard(row)])
   }
+  const documentMap = new Map<number, Record<string, unknown>[]>()
+  for (const row of documents as Record<string, unknown>[]) {
+    const chapterId = numberOr(row.chapter_id)
+    documentMap.set(chapterId, [...(documentMap.get(chapterId) ?? []), row])
+  }
   res.json({
     book: exposeBook(book, canEdit(req, book, workspaceId)),
-    chapters: (chapters as Record<string, unknown>[]).map(chapter => ({ ...chapter, cards: cardMap.get(numberOr(chapter.id)) ?? [] }))
+    chapters: (chapters as Record<string, unknown>[]).map(chapter => ({ ...chapter, cards: cardMap.get(numberOr(chapter.id)) ?? [], documents: documentMap.get(numberOr(chapter.id)) ?? [] }))
   })
 })
 
@@ -217,6 +225,55 @@ studyRouter.delete('/chapters/:id', async (req: Request, res: Response) => {
   const book = id ? await bookForChapter(id, workspaceId) : null
   if (!book) return res.status(404).json({ message: '章节不存在' }); if (!canEdit(req, book, workspaceId)) return rejectReadOnly(res)
   await getPostgresSql().unsafe('DELETE FROM study_chapters WHERE id=$1', [id]); res.json({ ok: true })
+})
+
+studyRouter.post('/chapters/:id/documents', async (req: Request, res: Response) => {
+  const workspaceId = requireWorkspaceId(req); const chapterId = parsePositiveId(req.params.id, '目录编号')
+  const book = chapterId ? await bookForChapter(chapterId, workspaceId) : null
+  if (!book) return res.status(404).json({ message: '目录不存在' }); if (!canEdit(req, book, workspaceId)) return rejectReadOnly(res)
+  const title = text(req.body?.title, 240); if (!title) return res.status(422).json({ message: '文章标题不能为空' })
+  const rows = await getPostgresSql().unsafe(`INSERT INTO study_documents (chapter_id,title,summary,content,source_url,source_name,sort)
+    VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`, [chapterId, title, text(req.body?.summary, 4_000), text(req.body?.content, 80_000), text(req.body?.source_url, 2_000) || null, text(req.body?.source_name, 240) || null, await nextSort('study_documents', 'chapter_id', chapterId)])
+  res.status(201).json(rows[0])
+})
+
+studyRouter.put('/documents/:id', async (req: Request, res: Response) => {
+  const workspaceId = requireWorkspaceId(req); const id = parsePositiveId(req.params.id, '文章编号')
+  const rows = id ? await getPostgresSql().unsafe(`SELECT d.* FROM study_documents d JOIN study_chapters c ON c.id=d.chapter_id JOIN study_books b ON b.id=c.book_id WHERE d.id=$1 AND (b.visibility='public' OR b.workspace_id=$2)`, [id, workspaceId]) as Array<Record<string, unknown>> : []
+  const current = rows[0]; const book = id ? await bookForChapter(numberOr(current?.chapter_id), workspaceId) : null
+  if (!current || !book) return res.status(404).json({ message: '文章不存在' }); if (!canEdit(req, book, workspaceId)) return rejectReadOnly(res)
+  const title = Object.hasOwn(req.body ?? {}, 'title') ? text(req.body.title, 240) : String(current.title); if (!title) return res.status(422).json({ message: '文章标题不能为空' })
+  const chapterId = Object.hasOwn(req.body ?? {}, 'chapter_id') ? parsePositiveId(req.body.chapter_id, '目录编号') : numberOr(current.chapter_id)
+  const destination = chapterId ? await bookForChapter(chapterId, workspaceId) : null
+  if (!chapterId || !destination || destination.id !== book.id) return res.status(422).json({ message: '文章只能移动到当前八股册内的目录' })
+  const updated = await getPostgresSql().unsafe(`UPDATE study_documents SET chapter_id=$2,title=$3,summary=$4,content=$5,source_url=$6,source_name=$7,updated_at=now() WHERE id=$1 RETURNING *`, [id, chapterId, title, Object.hasOwn(req.body ?? {}, 'summary') ? text(req.body.summary, 4_000) : String(current.summary ?? ''), Object.hasOwn(req.body ?? {}, 'content') ? text(req.body.content, 80_000) : String(current.content ?? ''), Object.hasOwn(req.body ?? {}, 'source_url') ? text(req.body.source_url, 2_000) || null : current.source_url, Object.hasOwn(req.body ?? {}, 'source_name') ? text(req.body.source_name, 240) || null : current.source_name])
+  res.json(updated[0])
+})
+
+studyRouter.delete('/documents/:id', async (req: Request, res: Response) => {
+  const workspaceId = requireWorkspaceId(req); const id = parsePositiveId(req.params.id, '文章编号')
+  const rows = id ? await getPostgresSql().unsafe(`SELECT c.id AS chapter_id FROM study_documents d JOIN study_chapters c ON c.id=d.chapter_id JOIN study_books b ON b.id=c.book_id WHERE d.id=$1 AND (b.visibility='public' OR b.workspace_id=$2)`, [id, workspaceId]) as Array<Record<string, unknown>> : []
+  const book = rows[0] ? await bookForChapter(numberOr(rows[0].chapter_id), workspaceId) : null
+  if (!book) return res.status(404).json({ message: '文章不存在' }); if (!canEdit(req, book, workspaceId)) return rejectReadOnly(res)
+  await getPostgresSql().unsafe('DELETE FROM study_documents WHERE id=$1', [id]); res.json({ ok: true })
+})
+
+/** 用户主动粘贴的资料由模型整理为一篇可阅读的 Markdown；不会抓取或转载外部网页。 */
+studyRouter.post('/books/:id/ai-parse', async (req: Request, res: Response) => {
+  const workspaceId = requireWorkspaceId(req); const id = parsePositiveId(req.params.id, '八股册编号')
+  const book = id ? await findAccessibleBook(id, workspaceId) : null
+  if (!book) return res.status(404).json({ message: '八股册不存在' }); if (!canEdit(req, book, workspaceId)) return rejectReadOnly(res)
+  const raw = text(req.body?.text, 60_000); const chapterId = parsePositiveId(req.body?.chapter_id, '目录编号')
+  const destination = chapterId ? await bookForChapter(chapterId, workspaceId) : null
+  if (!raw) return res.status(422).json({ message: '请先粘贴需要整理的资料' })
+  if (!destination || destination.id !== book.id) return res.status(422).json({ message: '请选择当前八股册中的目录' })
+  const schema = { type: 'object', additionalProperties: false, required: ['title', 'summary', 'content'], properties: {
+    title: { type: 'string', minLength: 1, maxLength: 240 }, summary: { type: 'string', maxLength: 4000 }, content: { type: 'string', minLength: 1, maxLength: 80000 }
+  } }
+  try {
+    const result = await completeStructured([{ role: 'system', content: '你是面试知识整理助手。把用户主动提供的资料整理成准确、可阅读的中文 Markdown 文章。保留事实和关键术语；使用二级、三级标题、列表、必要的代码块；不要编造资料中没有的结论；不要输出题卡、前言或 JSON 以外的内容。' }, { role: 'user', content: `<source_material>\n${raw}\n</source_material>` }], { task: 'knowledgeExtract', schemaName: 'study_document', schema, validate: value => value as { title: string; summary: string; content: string }, workspaceId })
+    res.json({ title: text(result.value.title, 240), summary: text(result.value.summary, 4000), content: text(result.value.content, 80_000) })
+  } catch (error) { res.status(error instanceof AiError ? error.statusCode : 502).json({ message: error instanceof Error ? error.message : 'AI 解析失败' }) }
 })
 
 studyRouter.post('/chapters/:id/cards', async (req: Request, res: Response) => {

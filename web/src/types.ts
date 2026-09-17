@@ -692,6 +692,19 @@ export interface StudyChapter {
   created_at: string
   updated_at: string
   cards: StudyCard[]
+  documents: StudyDocument[]
+}
+export interface StudyDocument {
+  id: number
+  chapter_id: number
+  title: string
+  summary: string
+  content: string
+  source_url: string | null
+  source_name: string | null
+  sort: number
+  created_at: string
+  updated_at: string
 }
 
 export interface StudyBookDetail {

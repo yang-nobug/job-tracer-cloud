@@ -329,6 +329,20 @@ export const studyCards = pgTable('study_cards', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
 }, table => [index('study_cards_chapter_sort_idx').on(table.chapterId, table.sort, table.id)])
 
+/** 正文文章用于八股阅读；题卡仍用于背诵和个人掌握度记录。 */
+export const studyDocuments = pgTable('study_documents', {
+  id: serial('id').primaryKey(),
+  chapterId: integer('chapter_id').notNull().references(() => studyChapters.id, { onDelete: 'cascade' }),
+  title: varchar('title', { length: 240 }).notNull(),
+  summary: text('summary').notNull().default(''),
+  content: text('content').notNull().default(''),
+  sourceUrl: text('source_url'),
+  sourceName: varchar('source_name', { length: 240 }),
+  sort: integer('sort').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+}, table => [index('study_documents_chapter_sort_idx').on(table.chapterId, table.sort, table.id)])
+
 export const studyCardProgress = pgTable('study_card_progress', {
   userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   cardId: integer('card_id').notNull().references(() => studyCards.id, { onDelete: 'cascade' }),
