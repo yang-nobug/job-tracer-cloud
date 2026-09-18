@@ -1,8 +1,15 @@
 import { Router } from 'express'
 import type { Request, Response } from 'express'
+import multer from 'multer'
+import { createHash, randomUUID } from 'node:crypto'
+import { mkdirSync, readFileSync, unlinkSync } from 'node:fs'
+import path from 'node:path'
 import { getPostgresSql } from '../database/client.js'
 import { parsePositiveId, requireWorkspaceId } from '../auth/workspace.js'
 import { AiError, completeStructured } from '../ai.js'
+import { inspectImage } from '../application-materials.js'
+import { STUDY_ASSET_STAGING_DIR } from '../data-paths.js'
+import { loadOssConfig, ossDelete, ossPut, ossSignedUrl } from '../oss.js'
 
 /** 固定知识地图。它只负责目录归类，不会自动生成学习任务或复习提醒。 */
 export const STUDY_DIRECTORY_KEYS = [
@@ -11,6 +18,8 @@ export const STUDY_DIRECTORY_KEYS = [
 ] as const
 
 export const studyRouter = Router()
+mkdirSync(STUDY_ASSET_STAGING_DIR, { recursive: true })
+const studyImageUpload = multer({ storage: multer.diskStorage({ destination: STUDY_ASSET_STAGING_DIR, filename: (_req, file, cb) => cb(null, `${randomUUID()}${path.extname(file.originalname).toLowerCase()}`) }), limits: { fileSize: 5 * 1024 * 1024, files: 1 } })
 
 type BookRow = Record<string, unknown> & { id: number; workspace_id: string | null; visibility: string }
 
@@ -107,6 +116,26 @@ async function validateDirectoryParent(bookId: number, parentId: number | null, 
 function rejectReadOnly(res: Response): boolean {
   res.status(403).json({ message: '这套公共八股册仅管理员可修改' })
   return false
+}
+/** 数据库级级联删除不会通知 OSS；删除内容前主动清理对应对象。 */
+async function removeStudyAssetObjects(objectKeys: string[]): Promise<void> {
+  if (!objectKeys.length) return
+  const oss = loadOssConfig()
+  if (!oss) return
+  await Promise.all(objectKeys.map(async objectKey => {
+    try { await ossDelete(oss, objectKey) }
+    catch (error) { console.warn(`[study] OSS 图解清理失败: ${objectKey}`, error) }
+  }))
+}
+async function studyAssetKeys(whereSql: string, params: unknown[]): Promise<string[]> {
+  const rows = await getPostgresSql().unsafe(
+    `SELECT a.object_key FROM study_assets a
+     JOIN study_documents d ON d.id=a.document_id
+     JOIN study_chapters c ON c.id=d.chapter_id
+     WHERE ${whereSql}`,
+    params
+  ) as Array<Record<string, unknown>>
+  return rows.map(row => String(row.object_key)).filter(Boolean)
 }
 function normalized(value: string): string { return value.trim().toLocaleLowerCase('zh-CN').replace(/[\s\-_（）()【】\[\]：:，,。.!！?？]/g, '') }
 function safePath(value: unknown): string[] { return Array.isArray(value) ? value.map(item => text(item, 160)).filter(Boolean).slice(0, 6) : [] }
@@ -261,7 +290,9 @@ studyRouter.delete('/books/:id', async (req: Request, res: Response) => {
   const book = id ? await findAccessibleBook(id, workspaceId) : null
   if (!book) return res.status(404).json({ message: '八股册不存在' })
   if (!canEdit(req, book, workspaceId)) return rejectReadOnly(res)
+  const assetKeys = await studyAssetKeys('c.book_id=$1', [id])
   await getPostgresSql().unsafe('DELETE FROM study_books WHERE id=$1', [id])
+  await removeStudyAssetObjects(assetKeys)
   res.json({ ok: true })
 })
 
@@ -298,7 +329,14 @@ studyRouter.delete('/chapters/:id', async (req: Request, res: Response) => {
   const workspaceId = requireWorkspaceId(req); const id = parsePositiveId(req.params.id, '章节编号')
   const book = id ? await bookForChapter(id, workspaceId) : null
   if (!book) return res.status(404).json({ message: '章节不存在' }); if (!canEdit(req, book, workspaceId)) return rejectReadOnly(res)
-  await getPostgresSql().unsafe('DELETE FROM study_chapters WHERE id=$1', [id]); res.json({ ok: true })
+  const assetKeys = await studyAssetKeys(`c.id IN (
+    WITH RECURSIVE subtree AS (
+      SELECT id FROM study_chapters WHERE id=$1
+      UNION ALL SELECT child.id FROM study_chapters child JOIN subtree parent ON child.parent_id=parent.id
+    ) SELECT id FROM subtree
+  )`, [id])
+  await getPostgresSql().unsafe('DELETE FROM study_chapters WHERE id=$1', [id])
+  await removeStudyAssetObjects(assetKeys); res.json({ ok: true })
 })
 
 studyRouter.post('/chapters/:id/documents', async (req: Request, res: Response) => {
@@ -329,7 +367,57 @@ studyRouter.delete('/documents/:id', async (req: Request, res: Response) => {
   const rows = id ? await getPostgresSql().unsafe(`SELECT c.id AS chapter_id FROM study_documents d JOIN study_chapters c ON c.id=d.chapter_id JOIN study_books b ON b.id=c.book_id WHERE d.id=$1 AND (b.visibility='public' OR b.workspace_id=$2)`, [id, workspaceId]) as Array<Record<string, unknown>> : []
   const book = rows[0] ? await bookForChapter(numberOr(rows[0].chapter_id), workspaceId) : null
   if (!book) return res.status(404).json({ message: '文章不存在' }); if (!canEdit(req, book, workspaceId)) return rejectReadOnly(res)
-  await getPostgresSql().unsafe('DELETE FROM study_documents WHERE id=$1', [id]); res.json({ ok: true })
+  const assetKeys = await studyAssetKeys('d.id=$1', [id])
+  await getPostgresSql().unsafe('DELETE FROM study_documents WHERE id=$1', [id])
+  await removeStudyAssetObjects(assetKeys); res.json({ ok: true })
+})
+
+async function accessibleStudyDocument(id: number, workspaceId: string): Promise<{ document: Record<string, unknown>; book: BookRow } | null> {
+  const rows = await getPostgresSql().unsafe(`SELECT d.*,b.id AS book_id,b.workspace_id AS book_workspace_id,b.visibility AS book_visibility
+    FROM study_documents d JOIN study_chapters c ON c.id=d.chapter_id JOIN study_books b ON b.id=c.book_id
+    WHERE d.id=$1 AND (b.visibility='public' OR b.workspace_id=$2)`, [id, workspaceId]) as Array<Record<string, unknown>>
+  const row = rows[0]; if (!row) return null
+  return { document: row, book: { id: numberOr(row.book_id), workspace_id: typeof row.book_workspace_id === 'string' ? row.book_workspace_id : null, visibility: String(row.book_visibility) } as BookRow }
+}
+
+studyRouter.post('/documents/:id/assets', studyImageUpload.single('image'), async (req: Request, res: Response) => {
+  const workspaceId = requireWorkspaceId(req); const documentId = parsePositiveId(req.params.id, '文章编号'); const file = req.file
+  const cleanup = () => { try { if (file?.path) unlinkSync(file.path) } catch {} }
+  let uploaded: { objectKey: string; oss: NonNullable<ReturnType<typeof loadOssConfig>> } | null = null
+  try {
+    const access = documentId ? await accessibleStudyDocument(documentId, workspaceId) : null
+    if (!access) return res.status(404).json({ message: '文章不存在' }); if (!canEdit(req, access.book, workspaceId)) return rejectReadOnly(res)
+    if (!file) return res.status(422).json({ message: '请选择图片文件' })
+    const bytes = readFileSync(file.path); const image = inspectImage(bytes)
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(image.mime)) return res.status(422).json({ message: '仅支持 PNG、JPEG、静态 WebP 图片' })
+    const oss = loadOssConfig(); if (!oss) return res.status(422).json({ message: 'OSS 未配置，无法保存八股图解' })
+    const scope = access.book.visibility === 'public' ? 'public' : `workspaces/${workspaceId}`
+    const assetId = randomUUID(); const objectKey = `job-tracer/study-assets/${scope}/${documentId}/${assetId}.${image.ext}`
+    await ossPut(oss, objectKey, file.path, image.mime)
+    uploaded = { objectKey, oss }
+    const rows = await getPostgresSql().unsafe(`INSERT INTO study_assets (id,document_id,object_key,original_name,mime,bytes,width,height,content_hash,alt)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`, [assetId, documentId, objectKey, path.basename(file.originalname).slice(0, 240), image.mime, bytes.length, image.width, image.height, createHash('sha256').update(bytes).digest('hex'), text(req.body?.alt, 500)])
+    res.status(201).json({ ...rows[0], markdown: `![${text(req.body?.alt, 500) || '图解'}](/api/study/assets/${assetId})` })
+  } catch (error) {
+    if (uploaded) await ossDelete(uploaded.oss, uploaded.objectKey).catch(cleanupError => console.warn('[study] 失败上传的 OSS 图解清理失败', cleanupError))
+    res.status(error instanceof AiError ? error.statusCode : 422).json({ message: error instanceof Error ? error.message : '图片上传失败' })
+  } finally { cleanup() }
+})
+
+studyRouter.get('/assets/:id', async (req: Request, res: Response) => {
+  const workspaceId = requireWorkspaceId(req); const id = typeof req.params.id === 'string' ? req.params.id : ''
+  const rows = await getPostgresSql().unsafe(`SELECT a.object_key,b.workspace_id,b.visibility FROM study_assets a JOIN study_documents d ON d.id=a.document_id JOIN study_chapters c ON c.id=d.chapter_id JOIN study_books b ON b.id=c.book_id WHERE a.id=$1 AND (b.visibility='public' OR b.workspace_id=$2)`, [id, workspaceId]) as Array<Record<string, unknown>>
+  const row = rows[0]; if (!row) return res.status(404).json({ message: '图片不存在或无权访问' })
+  const oss = loadOssConfig(); if (!oss) return res.status(503).json({ message: 'OSS 未配置' })
+  res.redirect(302, ossSignedUrl(oss, String(row.object_key), 300))
+})
+
+studyRouter.use((error: unknown, _req: Request, res: Response, next: (error: unknown) => void) => {
+  if (error instanceof multer.MulterError) {
+    const message = error.code === 'LIMIT_FILE_SIZE' ? '图片大小不能超过 5MB' : '图片上传参数不正确'
+    return res.status(422).json({ message })
+  }
+  next(error)
 })
 
 /** 用户主动粘贴的资料由模型整理为一篇可阅读的 Markdown；不会抓取或转载外部网页。 */

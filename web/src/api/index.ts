@@ -51,6 +51,18 @@ export const api = {
     })
   },
 
+  /** 上传八股文章图解；服务端完成鉴权后写入私有 OSS。 */
+  uploadStudyAsset: (documentId: number, image: File, alt?: string) => {
+    const form = new FormData()
+    form.append('image', image)
+    if (alt) form.append('alt', alt)
+    return fetch(`${BASE}/study/documents/${documentId}/assets`, { method: 'POST', body: form, credentials: 'same-origin' }).then(async res => {
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error((body as { message?: string }).message || '图片上传失败')
+      return body as { markdown: string }
+    })
+  },
+
   // 上传面试录音（multipart，触发转写+复盘管道）
   uploadRecording: (interviewId: number, file: File) => {
     const form = new FormData()

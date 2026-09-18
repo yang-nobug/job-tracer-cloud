@@ -21,3 +21,5 @@ export const WORKSPACE_KNOWLEDGE_IMAGES_DIR = path.join(WORKSPACE_FILES_DIR, 'kn
 export const WORKSPACE_APPLICATION_MATERIALS_DIR = path.join(WORKSPACE_FILES_DIR, 'application_materials')
 /** 项目源码压缩包只供当前工作区建立只读索引，不作为静态文件暴露。 */
 export const WORKSPACE_PROJECT_ARCHIVES_DIR = path.join(WORKSPACE_FILES_DIR, 'project_archives')
+/** 八股图解上传到 OSS 前的短暂落盘目录；上传完成立即删除。 */
+export const STUDY_ASSET_STAGING_DIR = path.join(WORKSPACE_FILES_DIR, 'study_asset_staging')

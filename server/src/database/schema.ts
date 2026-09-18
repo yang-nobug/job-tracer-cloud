@@ -351,6 +351,13 @@ export const studyDocumentSections = pgTable('study_document_sections', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
 }, table => [index('study_document_sections_document_sort_idx').on(table.documentId, table.sort, table.id), index('study_document_sections_parent_sort_idx').on(table.parentId, table.sort, table.id)])
 
+export const studyAssets = pgTable('study_assets', {
+  id: uuid('id').defaultRandom().primaryKey(), documentId: integer('document_id').notNull().references(() => studyDocuments.id, { onDelete: 'cascade' }),
+  sectionId: integer('section_id').references(() => studyDocumentSections.id, { onDelete: 'set null' }), objectKey: text('object_key').notNull().unique(),
+  originalName: varchar('original_name', { length: 240 }).notNull(), mime: varchar('mime', { length: 80 }).notNull(), bytes: integer('bytes').notNull(), width: integer('width').notNull(), height: integer('height').notNull(),
+  contentHash: varchar('content_hash', { length: 64 }).notNull(), alt: varchar('alt', { length: 500 }).notNull().default(''), createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+}, table => [index('study_assets_document_idx').on(table.documentId, table.createdAt)])
+
 /** 原文和 AI 导入计划先暂存，用户确认后才应用；任何一次批量导入都可回溯。 */
 export const studyImportJobs = pgTable('study_import_jobs', {
   id: serial('id').primaryKey(), workspaceId: uuid('workspace_id').references(() => workspaces.id, { onDelete: 'cascade' }),
