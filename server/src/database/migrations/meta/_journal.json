@@ -162,6 +162,13 @@
       "when": 1789564800000,
       "tag": "0022_study-documents",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1789651200000,
+      "tag": "0023_study-import-plans",
+      "breakpoints": true
     }
   ]
 }

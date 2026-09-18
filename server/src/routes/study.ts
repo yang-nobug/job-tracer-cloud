@@ -108,6 +108,77 @@ function rejectReadOnly(res: Response): boolean {
   res.status(403).json({ message: '这套公共八股册仅管理员可修改' })
   return false
 }
+function normalized(value: string): string { return value.trim().toLocaleLowerCase('zh-CN').replace(/[\s\-_（）()【】\[\]：:，,。.!！?？]/g, '') }
+function safePath(value: unknown): string[] { return Array.isArray(value) ? value.map(item => text(item, 160)).filter(Boolean).slice(0, 6) : [] }
+type PlannedUnit = { directory_key: string; book_title: string; path: string[]; document_title: string; summary: string; sections: Array<{ title: string; content: string }> }
+function validateImportPlan(value: unknown): { units: PlannedUnit[] } {
+  if (!value || typeof value !== 'object' || !Array.isArray((value as Record<string, unknown>).units)) throw new Error('缺少知识单元列表')
+  const units = (value as Record<string, unknown>).units.slice(0, 30).map(raw => {
+    if (!raw || typeof raw !== 'object') throw new Error('知识单元格式错误')
+    const item = raw as Record<string, unknown>; const key = directoryKey(item.directory_key); const sections = Array.isArray(item.sections) ? item.sections.slice(0, 30).map(section => {
+      const source = section as Record<string, unknown>; const title = text(source?.title, 240); const content = text(source?.content, 30_000); if (!title || !content) throw new Error('章节缺少标题或正文'); return { title, content }
+    }) : []
+    const bookTitle = text(item.book_title, 160); const documentTitle = text(item.document_title, 240)
+    if (!key || !bookTitle || !documentTitle || !sections.length) throw new Error('知识单元缺少归属或正文')
+    return { directory_key: key, book_title: bookTitle, path: safePath(item.path), document_title: documentTitle, summary: text(item.summary, 4_000), sections }
+  })
+  if (!units.length) throw new Error('没有识别到可导入的知识单元'); return { units }
+}
+async function importJobFor(req: Request, id: number, workspaceId: string): Promise<Record<string, unknown> | null> {
+  const rows = await getPostgresSql().unsafe('SELECT * FROM study_import_jobs WHERE id=$1 AND (workspace_id=$2 OR created_by_user_id=$3)', [id, workspaceId, req.auth!.userId])
+  return rows[0] as Record<string, unknown> | undefined ?? null
+}
+
+studyRouter.post('/imports/plan', async (req: Request, res: Response) => {
+  const workspaceId = requireWorkspaceId(req); const raw = text(req.body?.text, 20_000); const visibility = req.body?.visibility === 'public' && req.auth?.isAdmin ? 'public' : 'private'
+  if (!raw) return res.status(422).json({ message: '请粘贴需要整理的资料' })
+  const schema = { type: 'object', additionalProperties: false, required: ['units'], properties: { units: { type: 'array', minItems: 1, maxItems: 30, items: { type: 'object', additionalProperties: false, required: ['directory_key', 'book_title', 'path', 'document_title', 'summary', 'sections'], properties: { directory_key: { type: 'string', enum: [...STUDY_DIRECTORY_KEYS] }, book_title: { type: 'string' }, path: { type: 'array', items: { type: 'string' } }, document_title: { type: 'string' }, summary: { type: 'string' }, sections: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['title', 'content'], properties: { title: { type: 'string' }, content: { type: 'string' } } } } } } } } }
+  try {
+    const planned = await completeStructured([{ role: 'system', content: `你负责把混合面试资料拆成独立知识单元。每个单元必须归入一个固定大目录，并给出八股册、目录路径、文章主题和有序章节。不同技术主题必须拆开；不要编造；不要把不同主题合并。只返回 JSON。\n固定大目录：${STUDY_DIRECTORY_KEYS.join('、')}\nSchema：${JSON.stringify(schema)}` }, { role: 'user', content: `<untrusted_source_material>\n${raw}\n</untrusted_source_material>` }], { task: 'knowledgeExtract', schemaName: 'study_import_plan', schema, validate: validateImportPlan, workspaceId })
+    const sql = getPostgresSql(); const jobRows = await sql.unsafe(`INSERT INTO study_import_jobs (workspace_id,visibility,source_text,created_by_user_id) VALUES ($1,$2,$3,$4) RETURNING *`, [visibility === 'public' ? null : workspaceId, visibility, raw, req.auth!.userId]); const job = jobRows[0] as Record<string, unknown>
+    const items = []
+    for (const [sort, unit] of planned.value.units.entries()) {
+      const matches = await sql.unsafe(`SELECT d.id FROM study_documents d JOIN study_chapters c ON c.id=d.chapter_id JOIN study_books b ON b.id=c.book_id WHERE b.visibility=$1 AND b.directory_key=$2 AND lower(b.title)=lower($3) AND lower(d.title)=lower($4) LIMIT 1`, [visibility, unit.directory_key, unit.book_title, unit.document_title]) as Array<{ id: number }>
+      const action = matches[0] ? 'needs_review' : 'create_document'; const reason = matches[0] ? '发现可能相同的已有文章，需按章节确认合并，不会自动覆盖' : '未发现同主题文章，将新建文章'
+      const inserted = await sql.unsafe(`INSERT INTO study_import_items (job_id,sort,status,action,directory_key,book_title,path_json,document_title,summary,sections_json,target_document_id,match_confidence,reason) VALUES ($1,$2,'planned',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`, [job.id, sort + 1, action, unit.directory_key, unit.book_title, JSON.stringify(unit.path), unit.document_title, unit.summary, JSON.stringify(unit.sections), matches[0]?.id ?? null, matches[0] ? 65 : 100, reason])
+      items.push(inserted[0])
+    }
+    res.status(201).json({ job, items })
+  } catch (error) { res.status(error instanceof AiError ? error.statusCode : 502).json({ message: error instanceof Error ? error.message : 'AI 拆分失败' }) }
+})
+
+studyRouter.get('/imports/:id', async (req: Request, res: Response) => { const workspaceId = requireWorkspaceId(req); const id = parsePositiveId(req.params.id, '导入任务编号'); const job = id ? await importJobFor(req, id, workspaceId) : null; if (!job) return res.status(404).json({ message: '导入任务不存在' }); const items = await getPostgresSql().unsafe('SELECT * FROM study_import_items WHERE job_id=$1 ORDER BY sort,id', [id]); res.json({ job, items }) })
+
+studyRouter.post('/imports/:id/apply', async (req: Request, res: Response) => {
+  const workspaceId = requireWorkspaceId(req); const id = parsePositiveId(req.params.id, '导入任务编号'); const job = id ? await importJobFor(req, id, workspaceId) : null
+  if (!job) return res.status(404).json({ message: '导入任务不存在' }); if (job.visibility === 'public' && !req.auth?.isAdmin) return res.status(403).json({ message: '仅管理员可以发布公共八股资料' })
+  const selected = Array.isArray(req.body?.item_ids) ? req.body.item_ids.map(value => parsePositiveId(value, '导入项编号')).filter(Boolean) : null
+  const sql = getPostgresSql(); const items = await sql.unsafe(`SELECT * FROM study_import_items WHERE job_id=$1 AND status='planned'${selected?.length ? ` AND id = ANY($2::int[])` : ''} ORDER BY sort,id`, selected?.length ? [id, selected] : [id]) as Array<Record<string, unknown>>
+  let created = 0; const skipped: number[] = []
+  await sql.begin(async transaction => {
+    for (const item of items) {
+      if (item.action !== 'create_document') { skipped.push(numberOr(item.id)); continue }
+      const visibility = String(job.visibility); const scope = visibility === 'public' ? null : workspaceId
+      let books = await transaction.unsafe(`SELECT id FROM study_books WHERE visibility=$1 AND directory_key=$2 AND lower(title)=lower($3) AND workspace_id IS NOT DISTINCT FROM $4 LIMIT 1`, [visibility, item.directory_key, item.book_title, scope]) as Array<{ id: number }>
+      let bookId = books[0]?.id
+      if (!bookId) { const row = await transaction.unsafe(`INSERT INTO study_books (workspace_id,visibility,directory_key,title,description,created_by_user_id) VALUES ($1,$2,$3,$4,'',$5) RETURNING id`, [scope, visibility, item.directory_key, item.book_title, req.auth!.userId]); bookId = numberOr(row[0]?.id) }
+      let parentId: number | null = null
+      for (const segment of safePath(JSON.parse(String(item.path_json)))) {
+        const found = await transaction.unsafe('SELECT id FROM study_chapters WHERE book_id=$1 AND parent_id IS NOT DISTINCT FROM $2 AND lower(title)=lower($3) LIMIT 1', [bookId, parentId, segment]) as Array<{ id: number }>
+        if (found[0]) parentId = found[0].id
+        else { const row = await transaction.unsafe(`INSERT INTO study_chapters (book_id,parent_id,title,sort) VALUES ($1,$2,$3,(SELECT COALESCE(MAX(sort),0)+1 FROM study_chapters WHERE book_id=$1 AND parent_id IS NOT DISTINCT FROM $2)) RETURNING id`, [bookId, parentId, segment]); parentId = numberOr(row[0]?.id) }
+      }
+      if (!parentId) { const row = await transaction.unsafe(`INSERT INTO study_chapters (book_id,title,sort) VALUES ($1,$2,(SELECT COALESCE(MAX(sort),0)+1 FROM study_chapters WHERE book_id=$1)) RETURNING id`, [bookId, item.document_title]); parentId = numberOr(row[0]?.id) }
+      const sections = JSON.parse(String(item.sections_json)) as Array<{ title: string; content: string }>; const content = sections.map(section => `## ${section.title}\n\n${section.content}`).join('\n\n')
+      const doc = await transaction.unsafe(`INSERT INTO study_documents (chapter_id,title,summary,content,source_name,sort) VALUES ($1,$2,$3,$4,'AI 批量导入',(SELECT COALESCE(MAX(sort),0)+1 FROM study_documents WHERE chapter_id=$1)) RETURNING id`, [parentId, item.document_title, item.summary, content])
+      const documentId = numberOr(doc[0]?.id)
+      for (const [sort, section] of sections.entries()) await transaction.unsafe('INSERT INTO study_document_sections (document_id,title,canonical_key,content,sort) VALUES ($1,$2,$3,$4,$5)', [documentId, section.title, normalized(section.title), section.content, sort + 1])
+      await transaction.unsafe("UPDATE study_import_items SET status='applied',updated_at=now() WHERE id=$1", [item.id]); created++
+    }
+    await transaction.unsafe("UPDATE study_import_jobs SET status=CASE WHEN EXISTS(SELECT 1 FROM study_import_items WHERE job_id=$1 AND status='planned') THEN 'partially_applied' ELSE 'applied' END,updated_at=now() WHERE id=$1", [id])
+  })
+  res.json({ created, needs_review_item_ids: skipped })
+})
 
 studyRouter.get('/books', async (req: Request, res: Response) => {
   const workspaceId = requireWorkspaceId(req)

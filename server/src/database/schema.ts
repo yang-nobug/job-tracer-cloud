@@ -343,6 +343,30 @@ export const studyDocuments = pgTable('study_documents', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
 }, table => [index('study_documents_chapter_sort_idx').on(table.chapterId, table.sort, table.id)])
 
+/** 正文按章节保存，批量导入才能精确新增、合并或跳过某一个知识点。 */
+export const studyDocumentSections = pgTable('study_document_sections', {
+  id: serial('id').primaryKey(), documentId: integer('document_id').notNull().references(() => studyDocuments.id, { onDelete: 'cascade' }),
+  parentId: integer('parent_id').references(() => studyDocumentSections.id, { onDelete: 'cascade' }), title: varchar('title', { length: 240 }).notNull(),
+  canonicalKey: varchar('canonical_key', { length: 240 }), content: text('content').notNull().default(''), sort: integer('sort').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+}, table => [index('study_document_sections_document_sort_idx').on(table.documentId, table.sort, table.id), index('study_document_sections_parent_sort_idx').on(table.parentId, table.sort, table.id)])
+
+/** 原文和 AI 导入计划先暂存，用户确认后才应用；任何一次批量导入都可回溯。 */
+export const studyImportJobs = pgTable('study_import_jobs', {
+  id: serial('id').primaryKey(), workspaceId: uuid('workspace_id').references(() => workspaces.id, { onDelete: 'cascade' }),
+  visibility: varchar('visibility', { length: 16 }).notNull(), sourceText: text('source_text').notNull(), status: varchar('status', { length: 24 }).notNull().default('planned'),
+  createdByUserId: uuid('created_by_user_id').notNull().references(() => users.id, { onDelete: 'cascade' }), createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+}, table => [index('study_import_jobs_workspace_created_idx').on(table.workspaceId, table.createdAt)])
+
+export const studyImportItems = pgTable('study_import_items', {
+  id: serial('id').primaryKey(), jobId: integer('job_id').notNull().references(() => studyImportJobs.id, { onDelete: 'cascade' }),
+  sort: integer('sort').notNull().default(0), status: varchar('status', { length: 24 }).notNull().default('planned'), action: varchar('action', { length: 32 }).notNull(),
+  directoryKey: varchar('directory_key', { length: 48 }).notNull(), bookTitle: varchar('book_title', { length: 160 }).notNull(), pathJson: text('path_json').notNull().default('[]'),
+  documentTitle: varchar('document_title', { length: 240 }).notNull(), summary: text('summary').notNull().default(''), sectionsJson: text('sections_json').notNull().default('[]'),
+  targetDocumentId: integer('target_document_id').references(() => studyDocuments.id, { onDelete: 'set null' }), matchConfidence: integer('match_confidence').notNull().default(0), reason: text('reason').notNull().default(''),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+}, table => [index('study_import_items_job_sort_idx').on(table.jobId, table.sort, table.id)])
+
 export const studyCardProgress = pgTable('study_card_progress', {
   userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   cardId: integer('card_id').notNull().references(() => studyCards.id, { onDelete: 'cascade' }),
