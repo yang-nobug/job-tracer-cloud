@@ -62,7 +62,7 @@ async function createBook(): Promise<void> {
   }
 }
 async function planImport(): Promise<void> {
-  if (!importText.value.trim()) return ElMessage.warning('请先粘贴需要整理的资料')
+  if (!importText.value.trim()) return ElMessage.warning('请先粘贴需要录入的笔记正文')
   importPlanning.value = true
   try { importPlan.value = await api.post('/study/imports/plan', { text: importText.value, visibility: authState.user?.isAdmin ? 'public' : 'private' }) } catch (error) { ElMessage.error((error as Error).message) } finally { importPlanning.value = false }
 }
@@ -123,9 +123,9 @@ onMounted(load)
     <template #footer><el-button @click="createOpen = false">取消</el-button><el-button type="primary" :loading="saving" @click="createBook">创建并进入</el-button></template>
   </el-dialog>
   <el-dialog v-model="importOpen" title="智能录入八股资料" width="780px" class="study-create-dialog" append-to-body>
-    <template v-if="!importPlan"><p class="create-tip">粘贴混合资料后，AI 会拆分为多个知识单元，分别识别大目录、八股册、目录路径和文章。可能覆盖已有文章的内容不会自动写入。</p><el-input v-model="importText" type="textarea" :rows="15" maxlength="20000" show-word-limit placeholder="粘贴文章、笔记或多门技术资料" /></template>
+    <template v-if="!importPlan"><p class="create-tip">AI 会按主题拆分、识别目录，但不总结或改写知识正文；只清除作者、版权、推广等无关页面信息。可能覆盖已有文章的内容不会自动写入。</p><el-input v-model="importText" type="textarea" :rows="15" maxlength="20000" show-word-limit placeholder="粘贴文章、笔记或多门技术资料" /></template>
     <template v-else><p class="create-tip">以下是 AI 的导入计划。标为“待确认”的项目不会自动改动已有文章。</p><div class="import-plan"><article v-for="item in importPlan.items" :key="item.id"><b>{{ item.document_title }}</b><p>{{ STUDY_DIRECTORY.find(x => x.key === item.directory_key)?.title }} ＞ {{ item.book_title }} ＞ {{ JSON.parse(item.path_json).join(' ＞ ') || '根目录' }}</p><small :class="item.action">{{ item.action === 'create_document' ? '将新建文章' : '待确认合并' }}：{{ item.reason }}</small></article></div></template>
-    <template #footer><el-button @click="importOpen=false">取消</el-button><el-button v-if="!importPlan" type="primary" :loading="importPlanning" @click="planImport">AI 拆分并生成计划</el-button><el-button v-else type="primary" :loading="importApplying" @click="applyImport">确认导入可新建内容</el-button></template>
+    <template #footer><el-button @click="importOpen=false">取消</el-button><el-button v-if="!importPlan" type="primary" :loading="importPlanning" @click="planImport">AI 保真拆分并生成计划</el-button><el-button v-else type="primary" :loading="importApplying" @click="applyImport">确认导入可新建内容</el-button></template>
   </el-dialog>
 </template>
 
