@@ -33,7 +33,7 @@ statsRouter.get('/stats', async (req: Request, res: Response) => {
   const applied = apps.filter(app => app.status !== 'unsent' && app.applied_at)
   const rejected = apps.filter(app => app.rejected_at)
   const offers = apps.filter(app => app.status === 'offer' && !app.rejected_at)
-  const active = applied.filter(app => !app.rejected_at && app.status !== 'offer')
+  const active = apps.filter(app => app.status !== 'unsent' && app.status !== 'offer' && !app.rejected_at)
   const weekly: Array<{ week: string; count: number }> = []
   const current = new Date()
   const format = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`

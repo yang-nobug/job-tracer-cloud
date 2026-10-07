@@ -86,15 +86,20 @@ applicationsRouter.get('/', async (req: Request, res: Response) => {
   const workspaceId = requireWorkspaceId(req)
   const clauses = ['a.workspace_id=$1']; const params: unknown[] = [workspaceId]
   const next = (value: unknown) => { params.push(value); return `$${params.length}` }
-  const { status, channel, keyword, rejected, from, to } = req.query
+  const { status, channel, keyword, rejected, scope, from, to } = req.query
   if (status && isStatus(status)) clauses.push(`a.status=${next(status)}`)
   if (typeof channel === 'string' && channel) clauses.push(`a.channel=${next(channel)}`)
   if (typeof keyword === 'string' && keyword) {
     const pattern = `%${keyword}%`; const first = next(pattern); const second = next(pattern)
     clauses.push(`(a.company ILIKE ${first} OR a.position ILIKE ${second})`)
   }
-  if (rejected === 'true') clauses.push('a.rejected_at IS NOT NULL')
-  if (rejected === 'false') clauses.push('a.rejected_at IS NULL')
+  // 列表三个范围与统计页/看板顶部使用同一口径：
+  // 进行中 = 已投递、未挂、且尚未进入 Offer。
+  if (scope === 'active') clauses.push("a.status <> 'unsent' AND a.status <> 'offer' AND a.rejected_at IS NULL")
+  else if (scope === 'rejected') clauses.push('a.rejected_at IS NOT NULL')
+  // 兼容旧版前端的 rejected 参数，直到所有已打开页面刷新为新版本。
+  else if (rejected === 'true') clauses.push('a.rejected_at IS NOT NULL')
+  else if (rejected === 'false') clauses.push('a.rejected_at IS NULL')
   if (typeof from === 'string' && from) clauses.push(`a.applied_at>=${next(from)}`)
   if (typeof to === 'string' && to) clauses.push(`a.applied_at<=${next(to)}`)
   const rows = await getPostgresSql().unsafe(

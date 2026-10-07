@@ -10,7 +10,7 @@ import FilterBar from '../components/FilterBar.vue'
 import { safeExternalUrl } from '../utils/external-url'
 
 const apps = ref<Application[]>([])
-const filters = ref<{ status?: string; channel?: string; keyword?: string; rejected?: string }>({})
+const filters = ref<{ status?: string; channel?: string; keyword?: string; scope?: 'active' | 'all' | 'rejected' }>({ scope: 'active' })
 const sortBy = ref<'updated' | 'applied'>('updated')
 
 async function load(): Promise<void> {
@@ -33,7 +33,7 @@ const sortedApps = computed(() => {
   return [...apps.value].sort((x, y) => (y.applied_at ?? '').localeCompare(x.applied_at ?? ''))
 })
 
-function onFilterChange(f: { status?: string; channel?: string; keyword?: string; rejected?: string }): void {
+function onFilterChange(f: { status?: string; channel?: string; keyword?: string; scope?: 'active' | 'all' | 'rejected' }): void {
   filters.value = f
   load()
 }

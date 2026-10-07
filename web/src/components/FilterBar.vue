@@ -3,7 +3,7 @@ import { ref, watch, onMounted } from 'vue'
 import { STATUS_LABEL_LIST, DEFAULT_CHANNELS, type Status } from '../types'
 import { api } from '../api'
 
-// 范围：进行中（默认，不含已挂）/ 全部 / 已挂
+// 范围：进行中（已投递、未挂、非 Offer）/ 全部 / 已挂
 type Scope = 'active' | 'all' | 'rejected'
 const scope = ref<Scope>('active')
 const status = ref<Status | ''>('')
@@ -22,7 +22,7 @@ onMounted(async () => {
 })
 
 const emit = defineEmits<{
-  (e: 'change', filters: { status?: string; channel?: string; keyword?: string; rejected?: string }): void
+  (e: 'change', filters: { status?: string; channel?: string; keyword?: string; scope?: Scope }): void
 }>()
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
@@ -33,10 +33,10 @@ watch([scope, status, channel, keyword], () => {
       status: status.value || undefined,
       channel: channel.value || undefined,
       keyword: keyword.value || undefined,
-      rejected: scope.value === 'all' ? undefined : String(scope.value === 'rejected')
+      scope: scope.value
     })
   }, 300)
-})
+}, { immediate: true })
 </script>
 
 <template>

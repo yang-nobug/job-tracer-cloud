@@ -23,6 +23,8 @@ watch(() => store.dataVersion, () => load(), { immediate: true })
 
 const activeApps = computed(() => apps.value.filter((a) => !a.rejected_at))
 const rejectedApps = computed(() => apps.value.filter((a) => a.rejected_at))
+// 看板仍需展示“未投递”和 Offer 两列；顶部的“进行中”则与列表、统计页保持一致。
+const inProgressApps = computed(() => apps.value.filter((a) => !a.rejected_at && a.status !== 'unsent' && a.status !== 'offer'))
 
 interface KanbanColumn {
   key: Status | 'rejected'
@@ -59,7 +61,7 @@ const columns = computed<{ before: KanbanColumn[]; assessment: KanbanColumn[]; i
 const assessmentTotal = computed(() => columns.value.assessment.reduce((n, c) => n + c.list.length, 0))
 const interviewTotal = computed(() => columns.value.interview.reduce((n, c) => n + c.list.length, 0))
 const offerTotal = computed(() => columns.value.after.find(column => column.key === 'offer')?.list.length ?? 0)
-const activeTotal = computed(() => activeApps.value.length)
+const activeTotal = computed(() => inProgressApps.value.length)
 
 function getListRef(key: string): Application[] {
   const all = [
