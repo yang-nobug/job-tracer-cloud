@@ -33,6 +33,11 @@ interface SharedSource {
   updated_at: string
 }
 
+type SharedSourceRow = Omit<SharedSource, 'created_at' | 'updated_at'> & {
+  created_at: unknown
+  updated_at: unknown
+}
+
 interface SharedJobGroup {
   sources: SharedSource[]
   representative: SharedSource
@@ -42,6 +47,12 @@ interface SharedJobGroup {
 
 function normalizedText(value: string | null | undefined): string {
   return (value ?? '').normalize('NFKC').toLocaleLowerCase('zh-CN').replace(/[\s\-_—–·•()（）【】\[\]{}]/g, '')
+}
+
+/** postgres 驱动会将 timestamptz 解析为 Date；接口和排序统一使用 ISO 文本。 */
+function timestampText(value: unknown): string {
+  if (value instanceof Date) return value.toISOString()
+  return typeof value === 'string' ? value : String(value ?? '')
 }
 
 /** 忽略锚点和常见追踪参数；不能解析的旧链接仍以原文本比较。 */
@@ -267,11 +278,16 @@ async function sharedSources(filters: { keyword?: string; location?: string } = 
     clauses.push(`(a.company ILIKE ${company} OR a.position ILIKE ${position} OR COALESCE(a.jd_text,'') ILIKE ${jd})`)
   }
   if (filters.location) clauses.push(`COALESCE(a.location,'') ILIKE ${add(`%${filters.location}%`)}`)
-  return await getPostgresSql().unsafe(
+  const rows = await getPostgresSql().unsafe(
     `SELECT a.id,a.company,a.position,a.location,a.channel,a.jd_link,a.jd_text,a.created_at,a.updated_at
      FROM applications a WHERE ${clauses.join(' AND ')} ORDER BY a.updated_at DESC,a.id DESC`,
     values as never[]
-  ) as SharedSource[]
+  ) as SharedSourceRow[]
+  return rows.map(row => ({
+    ...row,
+    created_at: timestampText(row.created_at),
+    updated_at: timestampText(row.updated_at)
+  }))
 }
 
 sharedJobsRouter.get('/shared-jobs/status', async (req, res, next) => {
