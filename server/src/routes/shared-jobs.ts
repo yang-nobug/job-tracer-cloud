@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import type { Request, Response } from 'express'
+import { createHash } from 'node:crypto'
 import { getPostgresSql } from '../database/client.js'
 import { parsePositiveId, requireWorkspaceId } from '../auth/workspace.js'
 import { STATUS_LABELS, type Status } from '../types.js'
@@ -32,6 +33,13 @@ interface SharedSource {
   updated_at: string
 }
 
+interface SharedJobGroup {
+  sources: SharedSource[]
+  representative: SharedSource
+  alternatePositions: string[]
+  updatedAt: string
+}
+
 function normalizedText(value: string | null | undefined): string {
   return (value ?? '').normalize('NFKC').toLocaleLowerCase('zh-CN').replace(/[\s\-_—–·•()（）【】\[\]{}]/g, '')
 }
@@ -55,6 +63,29 @@ function normalizedUrl(value: string | null | undefined): string {
   } catch {
     return text
   }
+}
+
+/** JD 正文只作为同一公司的强标识，避免不同公司的通用模板被误合并。 */
+function jdTextKey(source: SharedSource): string | null {
+  const company = normalizedText(source.company)
+  const text = (source.jd_text ?? '').normalize('NFKC').replace(/\s+/g, '')
+  if (!company || !text) return null
+  return `jd:${company}:${createHash('sha256').update(text).digest('hex')}`
+}
+
+function fallbackKey(source: SharedSource): string | null {
+  const company = normalizedText(source.company)
+  const position = normalizedText(source.position)
+  return company && position ? `name:${company}:${position}` : null
+}
+
+function strongKeys(source: SharedSource): string[] {
+  const keys: string[] = []
+  const url = normalizedUrl(source.jd_link)
+  if (url) keys.push(`url:${url}`)
+  const text = jdTextKey(source)
+  if (text) keys.push(text)
+  return keys
 }
 
 function duplicateFor(source: Pick<SharedSource, 'company' | 'position' | 'jd_link'>, personal: PersonalApplication[]) {
@@ -117,7 +148,8 @@ async function sharedSource(id: number): Promise<SharedSource | null> {
   return rows[0] ?? null
 }
 
-function publicJob(source: SharedSource, personal: PersonalApplication[]) {
+function publicJob(group: SharedJobGroup, personal: PersonalApplication[]) {
+  const source = group.representative
   return {
     id: source.id,
     company: source.company,
@@ -127,29 +159,119 @@ function publicJob(source: SharedSource, personal: PersonalApplication[]) {
     jdLink: source.jd_link,
     jdText: source.jd_text,
     createdAt: source.created_at,
-    updatedAt: source.updated_at,
+    updatedAt: group.updatedAt,
+    alternatePositions: group.alternatePositions,
+    sharedSourceCount: group.sources.length,
     duplicate: duplicateFor(source, personal)
   }
 }
 
 /**
- * 岗位广场以“岗位”而非“谁录入过它”为单位展示。
- * 查询已按更新时间倒序，因此相同岗位只保留资料最新的一条；匹配规则与个人去重一致。
+ * 岗位广场以岗位而不是投递记录为单位展示。
+ * JD 链接和同公司 JD 正文是强标识；只有两者都缺失时才退回公司+岗位名。
+ * 这样“同一 JD、不同岗位名”会合并，而“同名、不同 JD”不会被误合并。
  */
-function sameSharedJob(left: SharedSource, right: SharedSource): boolean {
-  const leftJd = normalizedUrl(left.jd_link)
-  const rightJd = normalizedUrl(right.jd_link)
-  if (leftJd && rightJd && leftJd === rightJd) return true
-  return normalizedText(left.company) === normalizedText(right.company)
-    && normalizedText(left.position) === normalizedText(right.position)
+function groupSharedSources(rows: SharedSource[]): SharedJobGroup[] {
+  const parent = rows.map((_, index) => index)
+  const find = (index: number): number => {
+    let root = index
+    while (parent[root] !== root) root = parent[root]
+    while (parent[index] !== index) {
+      const next = parent[index]
+      parent[index] = root
+      index = next
+    }
+    return root
+  }
+  const join = (left: number, right: number): void => {
+    const a = find(left); const b = find(right)
+    if (a !== b) parent[b] = a
+  }
+
+  const firstByStrongKey = new Map<string, number>()
+  const hasStrongKey = rows.map(source => strongKeys(source))
+  hasStrongKey.forEach((keys, index) => {
+    for (const key of keys) {
+      const first = firstByStrongKey.get(key)
+      if (first === undefined) firstByStrongKey.set(key, index)
+      else join(first, index)
+    }
+  })
+
+  const groups = new Map<number, SharedSource[]>()
+  for (let index = 0; index < rows.length; index++) {
+    if (!hasStrongKey[index].length) continue
+    const root = find(index)
+    const group = groups.get(root) ?? []
+    group.push(rows[index])
+    groups.set(root, group)
+  }
+
+  // 无 JD 标识的旧记录只在对应公司+岗位只命中一个强标识岗位时附着；
+  // 若同名岗位已有多个不同 JD，宁可单列，也不把它们错误合并。
+  const strongGroupsByName = new Map<string, Set<number>>()
+  for (const [root, sources] of groups) {
+    for (const source of sources) {
+      const key = fallbackKey(source)
+      if (!key) continue
+      const matches = strongGroupsByName.get(key) ?? new Set<number>()
+      matches.add(root)
+      strongGroupsByName.set(key, matches)
+    }
+  }
+  const fallbackGroups = new Map<string, SharedSource[]>()
+  rows.forEach((source, index) => {
+    if (hasStrongKey[index].length) return
+    const key = fallbackKey(source)
+    const candidates = key ? strongGroupsByName.get(key) : undefined
+    if (candidates?.size === 1) {
+      const root = [...candidates][0]
+      groups.get(root)!.push(source)
+      return
+    }
+    const fallback = key || `record:${source.id}`
+    const group = fallbackGroups.get(fallback) ?? []
+    group.push(source)
+    fallbackGroups.set(fallback, group)
+  })
+
+  const allGroups = [...groups.values(), ...fallbackGroups.values()]
+  return allGroups.map(sources => {
+    const ranked = [...sources].sort((left, right) => {
+      const textDelta = (right.jd_text?.trim().length ?? 0) - (left.jd_text?.trim().length ?? 0)
+      if (textDelta) return textDelta
+      const linkDelta = Number(Boolean(right.jd_link?.trim())) - Number(Boolean(left.jd_link?.trim()))
+      if (linkDelta) return linkDelta
+      return right.updated_at.localeCompare(left.updated_at) || right.id - left.id
+    })
+    const representative = ranked[0]
+    const representativeName = normalizedText(representative.position)
+    const alternatePositions = [...new Set(sources.map(source => source.position.trim())
+      .filter(position => position && normalizedText(position) !== representativeName))]
+    return {
+      sources,
+      representative,
+      alternatePositions,
+      updatedAt: sources.reduce((latest, source) => source.updated_at > latest ? source.updated_at : latest, representative.updated_at)
+    }
+  }).sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || right.representative.id - left.representative.id)
 }
 
-function deduplicateSharedSources(rows: SharedSource[]): SharedSource[] {
-  const unique: SharedSource[] = []
-  for (const row of rows) {
-    if (!unique.some(existing => sameSharedJob(existing, row))) unique.push(row)
+async function sharedSources(filters: { keyword?: string; location?: string } = {}): Promise<SharedSource[]> {
+  const clauses = [sharedPredicate('a')]
+  const values: unknown[] = []
+  const add = (value: unknown) => { values.push(value); return `$${values.length}` }
+  if (filters.keyword) {
+    const value = `%${filters.keyword}%`
+    const company = add(value); const position = add(value); const jd = add(value)
+    clauses.push(`(a.company ILIKE ${company} OR a.position ILIKE ${position} OR COALESCE(a.jd_text,'') ILIKE ${jd})`)
   }
-  return unique
+  if (filters.location) clauses.push(`COALESCE(a.location,'') ILIKE ${add(`%${filters.location}%`)}`)
+  return await getPostgresSql().unsafe(
+    `SELECT a.id,a.company,a.position,a.location,a.channel,a.jd_link,a.jd_text,a.created_at,a.updated_at
+     FROM applications a WHERE ${clauses.join(' AND ')} ORDER BY a.updated_at DESC,a.id DESC`,
+    values as never[]
+  ) as SharedSource[]
 }
 
 sharedJobsRouter.get('/shared-jobs/status', async (req, res, next) => {
@@ -175,24 +297,25 @@ sharedJobsRouter.get('/shared-jobs', async (req, res, next) => {
   try {
     await requireConsent(req)
     const workspaceId = requireWorkspaceId(req)
-    const clauses = [sharedPredicate('a')]
-    const values: unknown[] = []
-    const add = (value: unknown) => { values.push(value); return `$${values.length}` }
     const keyword = typeof req.query.keyword === 'string' ? req.query.keyword.trim().slice(0, 120) : ''
     const location = typeof req.query.location === 'string' ? req.query.location.trim().slice(0, 80) : ''
-    if (keyword) {
-      const value = `%${keyword}%`
-      const company = add(value); const position = add(value); const jd = add(value)
-      clauses.push(`(a.company ILIKE ${company} OR a.position ILIKE ${position} OR COALESCE(a.jd_text,'') ILIKE ${jd})`)
-    }
-    if (location) clauses.push(`COALESCE(a.location,'') ILIKE ${add(`%${location}%`)}`)
-    const rows = await getPostgresSql().unsafe(
-      `SELECT a.id,a.company,a.position,a.location,a.channel,a.jd_link,a.jd_text,a.created_at,a.updated_at
-       FROM applications a WHERE ${clauses.join(' AND ')} ORDER BY a.updated_at DESC,a.id DESC LIMIT 200`,
-      values as never[]
-    ) as SharedSource[]
+    const requestedPage = typeof req.query.page === 'string' ? Number(req.query.page) : 1
+    const requestedSize = typeof req.query.pageSize === 'string' ? Number(req.query.pageSize) : 40
+    const pageSize = Number.isSafeInteger(requestedSize) ? Math.max(12, Math.min(100, requestedSize)) : 40
+    const rows = await sharedSources({ keyword, location })
+    const groups = groupSharedSources(rows)
+    const totalPages = Math.max(1, Math.ceil(groups.length / pageSize))
+    const page = Number.isSafeInteger(requestedPage) ? Math.max(1, Math.min(totalPages, requestedPage)) : 1
     const personal = await personalApplications(workspaceId)
-    res.json(deduplicateSharedSources(rows).map(source => publicJob(source, personal)))
+    res.json({
+      items: groups.slice((page - 1) * pageSize, page * pageSize).map(group => publicJob(group, personal)),
+      totalJobs: groups.length,
+      totalSources: rows.length,
+      locations: [...new Set(rows.map(row => row.location?.trim()).filter((value): value is string => Boolean(value)))].sort((left, right) => left.localeCompare(right, 'zh-CN')),
+      page,
+      pageSize,
+      totalPages
+    })
   } catch (error) { next(error) }
 })
 
@@ -202,9 +325,9 @@ sharedJobsRouter.get('/shared-jobs/:id', async (req, res, next) => {
     const workspaceId = requireWorkspaceId(req)
     const id = parsePositiveId(req.params.id, '岗位编号')
     if (!id) return res.status(404).json({ message: '共享岗位不存在' })
-    const source = await sharedSource(id)
-    if (!source) return res.status(404).json({ message: '共享岗位不存在或已撤回共享' })
-    res.json(publicJob(source, await personalApplications(workspaceId)))
+    const group = groupSharedSources(await sharedSources()).find(item => item.representative.id === id)
+    if (!group) return res.status(404).json({ message: '共享岗位不存在或已撤回共享' })
+    res.json(publicJob(group, await personalApplications(workspaceId)))
   } catch (error) { next(error) }
 })
 
