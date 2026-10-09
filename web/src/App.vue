@@ -204,6 +204,11 @@ watch(() => route.path, path => {
       <TutorPanel v-show="workspace === 'learn' && (!route.path.startsWith('/learn/study') || store.tutorOpen)" />
     </main>
 
+    <footer class="site-footer">
+      <span>Copyright © 2026 job tracer</span>
+      <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">陕ICP备2026028136号-1</a>
+    </footer>
+
     <AppFormDrawer v-model="store.formDrawerOpen" :editing="store.editingApp" />
     <DetailDrawer :app-id="store.detailId" @close="store.detailId = null" />
     <SourceIngestDialog />
@@ -237,7 +242,7 @@ body {
   color: var(--jt-text);
   -webkit-font-smoothing: antialiased;
 }
-.app-shell { min-height: 100vh; }
+.app-shell { display: flex; min-height: 100vh; flex-direction: column; }
 .mobile-study-tabs { display: none; }
 .auth-loading { min-height: 100vh; display: grid; place-items: center; color: #728095; background: var(--jt-bg); font-size: 14px; }
 
@@ -294,7 +299,10 @@ body {
 .more-caret { margin-left: 2px; font-size: 14px; }
 .primary-action { min-width: 96px; margin-left: 6px; border-radius: 8px; font-weight: 650; box-shadow: 0 5px 12px rgba(47, 111, 237, .18); }
 
-.main { max-width: 1440px; margin: 0 auto; padding: 22px 20px 30px; }
+.main { width: 100%; max-width: 1440px; flex: 1; margin: 0 auto; padding: 22px 20px 30px; }
+.site-footer { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; padding: 18px 20px 22px; color: #8b96a6; font-size: 12px; line-height: 1.5; text-align: center; }
+.site-footer a { color: #77869a; text-decoration: none; }
+.site-footer a:hover { color: var(--jt-primary); text-decoration: underline; }
 /* 学习区：内容 + 右侧助教栏分栏 */
 .main-learn { display: flex; gap: 20px; align-items: flex-start; }
 .main-content { flex: 1; min-width: 0; }
@@ -321,6 +329,7 @@ body {
   .utility-button { font-size: 12px; }
   .primary-action { min-width: auto; margin-left: 2px; }
   .main { padding: 16px 12px 24px; }
+  .site-footer { padding: 14px 12px calc(16px + env(safe-area-inset-bottom)); font-size: 11px; }
   .main-learn { display: block; }
   .learn-shell { padding-bottom: 18px; }
   .learn-shell .header { padding: 0; background: rgba(255, 255, 255, .97); border-bottom: 1px solid var(--jt-line); }
