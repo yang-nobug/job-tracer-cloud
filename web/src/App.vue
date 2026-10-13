@@ -18,6 +18,7 @@ import ResumeLibraryDialog from './components/ResumeLibraryDialog.vue'
 import AuthGate from './components/AuthGate.vue'
 import AccountDialog from './components/AccountDialog.vue'
 import { authState, initializeAuth, logout } from './auth'
+import publicSecurityRecordIcon from './assets/public-security-record.png'
 
 const route = useRoute()
 const router = useRouter()
@@ -207,6 +208,15 @@ watch(() => route.path, path => {
     <footer class="site-footer">
       <span>Copyright © 2026 job tracer</span>
       <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">陕ICP备2026028136号-1</a>
+      <a
+        class="public-security-record"
+        href="https://www.beian.gov.cn/portal/registerSystemInfo?recordcode=61011602000929"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        <img :src="publicSecurityRecordIcon" alt="公安联网备案图标" />
+        <span>陕公网安备61011602000929号</span>
+      </a>
     </footer>
 
     <AppFormDrawer v-model="store.formDrawerOpen" :editing="store.editingApp" />
@@ -302,6 +312,8 @@ body {
 .main { width: 100%; max-width: 1440px; flex: 1; margin: 0 auto; padding: 22px 20px 30px; }
 .site-footer { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; padding: 18px 20px 22px; color: #8b96a6; font-size: 12px; line-height: 1.5; text-align: center; }
 .site-footer a { color: #77869a; text-decoration: none; }
+.public-security-record { display: inline-flex; align-items: center; gap: 4px; }
+.public-security-record img { width: 16px; height: 16px; object-fit: contain; }
 .site-footer a:hover { color: var(--jt-primary); text-decoration: underline; }
 /* 学习区：内容 + 右侧助教栏分栏 */
 .main-learn { display: flex; gap: 20px; align-items: flex-start; }
@@ -361,3 +373,5 @@ body {
 
 
 </style>
+
+
