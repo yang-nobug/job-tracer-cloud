@@ -10,6 +10,7 @@ import type { MailRecruitmentExtraction } from '../mail-extraction-contracts.js'
 import type { MailScheduleReview } from '../mail-schedule-review.js'
 import { canAutomaticallyConfirm } from '../mail-automation-policy.js'
 import { validateRecruitmentScheduleInput, ScheduleValidationError, type RecruitmentScheduleInput } from '../recruitment-schedule.js'
+import { ensureScheduleInterviewPreparation } from './recruitment-schedules.js'
 import { canAutomaticallyAdvanceStatus } from '../status-transition.js'
 import { STATUS_LABELS, type Status } from '../types.js'
 
@@ -71,6 +72,11 @@ async function saveSchedule(workspaceId: string, candidateId: number, input: Rec
   const existing = row<{ id: number }>(await sql.unsafe('SELECT id FROM workspace_recruitment_schedules WHERE workspace_id=$1 AND source_mail_candidate_id=$2', [workspaceId, candidateId])); let id: number
   if (existing) { id = existing.id; await sql.unsafe(`UPDATE workspace_recruitment_schedules SET application_id=$3,event_type=$4,round=$5,title=$6,company=$7,position=$8,time_mode=$9,scheduled_at=$10,window_start_at=$11,window_end_at=$12,deadline_at=$13,duration_minutes=$14,timezone=$15,location=$16,meeting_link=$17,action_link=$18,contact=$19,instructions_json=$20,updated_at=now() WHERE workspace_id=$1 AND id=$2`, [workspaceId, id, input.applicationId, input.eventType, input.round, input.title, company, position, input.timeMode, input.scheduledAt, input.windowStartAt, input.windowEndAt, input.deadlineAt, input.durationMinutes, input.timezone, input.location, input.meetingLink, input.actionLink, input.contact, JSON.stringify(input.instructions)]) }
   else { const inserted = await sql.unsafe(`INSERT INTO workspace_recruitment_schedules (workspace_id,application_id,source_mail_candidate_id,source,event_type,round,title,company,position,time_mode,scheduled_at,window_start_at,window_end_at,deadline_at,duration_minutes,timezone,location,meeting_link,action_link,contact,instructions_json) VALUES ($1,$2,$3,'mail',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING id`, [workspaceId, input.applicationId, candidateId, input.eventType, input.round, input.title, company, position, input.timeMode, input.scheduledAt, input.windowStartAt, input.windowEndAt, input.deadlineAt, input.durationMinutes, input.timezone, input.location, input.meetingLink, input.actionLink, input.contact, JSON.stringify(input.instructions)]) as Array<{ id: number }>; id = inserted[0].id }
+  // 只要邮件已经确定关联到投递且给出了固定开始时间，就自动建立准备与复盘入口。
+  // Offer 与普通流程通知没有准备/录音需求，不创建空的 interview 记录。
+  if (input.applicationId && input.scheduledAt && !['offer', 'other'].includes(input.eventType)) {
+    await ensureScheduleInterviewPreparation(workspaceId, id)
+  }
   return { schedule: (await schedulePublic(workspaceId, id))!, created: !existing }
 }
 async function advanceStatus(workspaceId: string, candidateId: number, scheduleId: number, applicationId: number | null, extraction: MailRecruitmentExtraction): Promise<void> {

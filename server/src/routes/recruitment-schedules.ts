@@ -90,6 +90,16 @@ async function createInterviewForSchedule(workspaceId: string, schedule: Schedul
   return created[0].id
 }
 
+/**
+ * 日程与准备记录是一对一关系。邮箱自动识别和手动“开始准备”共用这一入口，
+ * 因此不会为同一日程重复创建清单、录音和复盘容器。
+ */
+export async function ensureScheduleInterviewPreparation(workspaceId: string, scheduleId: number): Promise<number> {
+  const schedule = await loadSchedule(workspaceId, scheduleId)
+  if (!schedule) throw new ScheduleValidationError('日程不存在')
+  return createInterviewForSchedule(workspaceId, schedule)
+}
+
 recruitmentSchedulesRouter.post('/applications/:id/schedules', async (req: Request, res: Response) => {
   const workspaceId = requireWorkspaceId(req)
   const applicationId = parsePositiveId(req.params.id, '投递编号')
@@ -108,7 +118,7 @@ recruitmentSchedulesRouter.post('/applications/:id/schedules', async (req: Reque
     await advanceApplication(workspaceId, applicationId, input, '手动新增日程')
     let schedule = inserted[0]
     if (req.body?.createInterview === true) {
-      await createInterviewForSchedule(workspaceId, schedule)
+      await ensureScheduleInterviewPreparation(workspaceId, schedule.id)
       schedule = (await loadSchedule(workspaceId, schedule.id))!
     }
     res.status(201).json(publicSchedule(schedule))
@@ -144,7 +154,7 @@ recruitmentSchedulesRouter.patch('/schedules/:id', async (req: Request, res: Res
 recruitmentSchedulesRouter.post('/schedules/:id/interview', async (req: Request, res: Response) => {
   const workspaceId = requireWorkspaceId(req); const id = parsePositiveId(req.params.id, '日程编号')
   if (!id) return res.status(404).json({ message: '日程不存在' })
-  try { const schedule = await loadSchedule(workspaceId, id); if (!schedule) return res.status(404).json({ message: '日程不存在' }); const interviewId = await createInterviewForSchedule(workspaceId, schedule); res.json({ interviewId, schedule: publicSchedule((await loadSchedule(workspaceId, id))!) }) }
+  try { const interviewId = await ensureScheduleInterviewPreparation(workspaceId, id); res.json({ interviewId, schedule: publicSchedule((await loadSchedule(workspaceId, id))!) }) }
   catch (error) { res.status(error instanceof ScheduleValidationError ? 422 : 500).json({ message: error instanceof Error ? error.message : '创建面试准备失败' }) }
 })
 
