@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs'
 import { applicationsRouter } from './routes/applications.js'
 import { eventsRouter } from './routes/events.js'
 import { interviewsRouter } from './routes/interviews.js'
+import { recruitmentSchedulesRouter } from './routes/recruitment-schedules.js'
 import { resumesRouter } from './routes/resumes.js'
 import { recoverInterruptedCloudResumeExtractions } from './cloud-resume-text.js'
 import { statsRouter } from './routes/stats.js'
@@ -93,6 +94,7 @@ app.use('/api', cloudTutorRouter)
 app.use('/api', cloudProjectsRouter)
 app.use('/api', cloudCodeReadingRouter)
 app.use('/api', interviewsRouter)
+app.use('/api', recruitmentSchedulesRouter)
 app.use('/api', eventsRouter)
 app.use('/api/applications', applicationsRouter)
 app.use('/api/resumes', resumesRouter)

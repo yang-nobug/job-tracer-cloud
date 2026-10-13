@@ -104,8 +104,13 @@ applicationsRouter.get('/', async (req: Request, res: Response) => {
   if (typeof to === 'string' && to) clauses.push(`a.applied_at<=${next(to)}`)
   const rows = await getPostgresSql().unsafe(
     `SELECT ${columns('a')},
-      (SELECT round FROM interviews i WHERE i.workspace_id=a.workspace_id AND i.application_id=a.id ORDER BY scheduled_at DESC, id DESC LIMIT 1) AS last_round,
-      (SELECT scheduled_at FROM interviews i WHERE i.workspace_id=a.workspace_id AND i.application_id=a.id AND done=false ORDER BY scheduled_at ASC, id DESC LIMIT 1) AS next_interview_at
+      (SELECT s.round FROM workspace_recruitment_schedules s
+       WHERE s.workspace_id=a.workspace_id AND s.application_id=a.id AND s.round <> ''
+       ORDER BY COALESCE(s.scheduled_at,s.window_start_at,s.window_end_at,s.deadline_at) DESC NULLS LAST,s.id DESC LIMIT 1) AS last_round,
+      (SELECT COALESCE(s.scheduled_at,s.window_start_at,s.window_end_at,s.deadline_at) FROM workspace_recruitment_schedules s
+       WHERE s.workspace_id=a.workspace_id AND s.application_id=a.id AND s.status='active'
+         AND COALESCE(s.scheduled_at,s.window_start_at,s.window_end_at,s.deadline_at) IS NOT NULL
+       ORDER BY COALESCE(s.scheduled_at,s.window_start_at,s.window_end_at,s.deadline_at) ASC,s.id DESC LIMIT 1) AS next_interview_at
      FROM applications a WHERE ${clauses.join(' AND ')} ORDER BY a.updated_at DESC`, params as never[]
   )
   res.json(rows)

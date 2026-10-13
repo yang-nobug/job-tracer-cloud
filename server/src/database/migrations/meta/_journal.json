@@ -176,6 +176,13 @@
       "when": 1789737600000,
       "tag": "0024_study-assets",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1790332800000,
+      "tag": "0025_unified-recruitment-schedules",
+      "breakpoints": true
     }
   ]
 }

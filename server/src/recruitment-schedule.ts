@@ -6,6 +6,7 @@ import {
 export interface RecruitmentScheduleInput {
   applicationId: number | null
   eventType: MailEventType
+  round: string
   title: string
   company: string
   position: string
@@ -81,6 +82,7 @@ export function validateRecruitmentScheduleInput(value: unknown): RecruitmentSch
   }
   const eventType = data.eventType as MailEventType
   const timeMode = data.timeMode as MailTimeMode
+  const round = valueText(data.round, '轮次', 40)
   const company = valueText(data.company, '公司', 200)
   const position = valueText(data.position, '岗位', 200)
   const providedTitle = valueText(data.title, '标题', 300)
@@ -122,7 +124,7 @@ export function validateRecruitmentScheduleInput(value: unknown): RecruitmentSch
   })
 
   return {
-    applicationId, eventType, title, company, position, timeMode, scheduledAt,
+    applicationId, eventType, round, title, company, position, timeMode, scheduledAt,
     windowStartAt, windowEndAt, deadlineAt, durationMinutes, timezone: 'Asia/Shanghai',
     location: valueText(data.location, '地点', 500),
     meetingLink: httpLink(data.meetingLink, '会议链接'),

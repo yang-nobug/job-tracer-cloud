@@ -14,6 +14,13 @@ const showForm = ref(false)
 const form = reactive({ round: '一面', scheduled_at: '', location: '' })
 const adding = ref(false)
 
+function eventTypeForRound(round: string): 'assessment' | 'written_test' | 'ai_interview' | 'interview' {
+  if (round === '心理测评') return 'assessment'
+  if (round === '笔试') return 'written_test'
+  if (round === 'AI面') return 'ai_interview'
+  return 'interview'
+}
+
 async function addInterview(): Promise<void> {
   if (!form.scheduled_at) {
     ElMessage.warning('请选择面试时间')
@@ -21,7 +28,11 @@ async function addInterview(): Promise<void> {
   }
   adding.value = true
   try {
-    await api.post(`/applications/${props.appId}/interviews`, { ...form })
+    await api.post(`/applications/${props.appId}/schedules`, {
+      eventType: eventTypeForRound(form.round), round: form.round, title: '', timeMode: 'fixed',
+      scheduledAt: form.scheduled_at, windowStartAt: null, windowEndAt: null, deadlineAt: null, durationMinutes: null,
+      location: form.location, meetingLink: '', actionLink: '', contact: '', instructions: [], createInterview: true
+    })
     ElMessage.success('已添加面试安排')
     showForm.value = false
     form.round = '一面'
@@ -78,7 +89,7 @@ async function saveInterviewTime(): Promise<void> {
 
 async function removeInterview(iv: Interview): Promise<void> {
   try {
-    await ElMessageBox.confirm(`删除「${iv.round} ${iv.scheduled_at}」的面试？其准备清单会一并删除（复盘 md 文件保留在磁盘）`, '删除确认', {
+    await ElMessageBox.confirm(`删除「${iv.round} ${iv.scheduled_at}」的面试准备？准备清单、录音和复盘会一并删除；招聘日程会保留。`, '删除确认', {
       type: 'warning'
     })
     await api.delete(`/interviews/${iv.id}`)

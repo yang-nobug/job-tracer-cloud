@@ -7,7 +7,7 @@ const emit = defineEmits<{ select: [item: UpcomingItem] }>()
 function countdown(dueAt: string): string {
   const target = new Date(dueAt.replace(' ', 'T')).getTime()
   const diff = target - Date.now()
-  if (diff <= 0) return '进行中/已过'
+  if (diff <= 0) return '已过待处理'
   const hours = Math.floor(diff / 3_600_000)
   if (hours < 24) return `${hours} 小时后`
   return `${Math.floor(hours / 24)} 天后`

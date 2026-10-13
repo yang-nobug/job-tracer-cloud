@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../api'
-import { bumpData } from '../store'
+import { bumpData, store } from '../store'
 import { safeExternalUrl } from '../utils/external-url'
 
 interface MailAccount {
@@ -139,7 +139,10 @@ interface RecruitmentScheduleItem {
   id: number
   applicationId: number | null
   sourceCandidateId: number | null
+  source: 'mail' | 'manual'
+  interviewId: number | null
   eventType: MailEventType
+  round: string
   title: string
   company: string
   position: string
@@ -164,6 +167,7 @@ interface RecruitmentScheduleItem {
 interface ScheduleDraft {
   applicationId: number | null
   eventType: MailEventType
+  round: string
   title: string
   company: string
   position: string
@@ -241,7 +245,7 @@ const scheduleItems = ref<RecruitmentScheduleItem[]>([])
 const automationSettings = ref<MailAutomationSettings | null>(null)
 const scheduleStatusFilter = ref<'active' | 'completed' | 'cancelled' | 'all'>('active')
 const scheduleDraft = ref<ScheduleDraft>({
-  applicationId: null, eventType: 'other', title: '', company: '', position: '', timeMode: 'unknown',
+  applicationId: null, eventType: 'other', round: '', title: '', company: '', position: '', timeMode: 'unknown',
   scheduledAt: null, windowStartAt: null, windowEndAt: null, deadlineAt: null,
   durationMinutes: null, location: '', meetingLink: '', actionLink: '', contact: '', instructionsText: ''
 })
@@ -295,7 +299,7 @@ function reviewDecisionType(review: MailScheduleReview | null): 'success' | 'war
 }
 
 function canWriteSchedule(candidate: MailCandidate): boolean {
-  return candidate.scheduleId !== null || candidate.scheduleReview?.decision === 'auto_confirm'
+  return candidate.scheduleId !== null || Boolean(candidate.analysis?.relevant && candidate.scheduleReview)
 }
 
 function extractedTimeLines(extraction: MailRecruitmentExtraction): string[] {
@@ -340,10 +344,12 @@ function resetScheduleDraft(candidate: MailCandidate): void {
   const extraction = candidate.analysis
   if (!extraction) return
   const saved = scheduleForCandidate(candidate.id)
-  const suggestedApplication = candidate.applicationMatches.find(item => item.score >= 8)?.id ?? null
+  // 仅公司和岗位同时命中才预选，避免同一公司多个岗位时把日程绑错。
+  const suggestedApplication = candidate.applicationMatches.find(item => item.score >= 13)?.id ?? null
   scheduleDraft.value = saved ? {
     applicationId: saved.applicationId,
     eventType: saved.eventType,
+    round: saved.round,
     title: saved.title,
     company: saved.company,
     position: saved.position,
@@ -361,6 +367,7 @@ function resetScheduleDraft(candidate: MailCandidate): void {
   } : {
     applicationId: suggestedApplication,
     eventType: extraction.event_type,
+    round: extraction.round,
     title: extraction.title,
     company: extraction.company,
     position: extraction.position,
@@ -415,6 +422,7 @@ async function confirmSchedule(): Promise<void> {
     const draft = scheduleDraft.value
     const saved = await api.post<RecruitmentScheduleItem>(`/mail/candidates/${candidate.id}/confirm-schedule`, {
       ...draft,
+      manualConfirm: candidate.scheduleReview?.decision !== 'auto_confirm',
       instructions: draft.instructionsText.split(/\r?\n/).map(item => item.trim()).filter(Boolean)
     })
     const index = scheduleItems.value.findIndex(item => item.id === saved.id)
@@ -496,6 +504,7 @@ async function load(): Promise<void> {
     applications.value = savedApplications
     scheduleItems.value = savedSchedules
     automationSettings.value = savedAutomation
+    await scrollToFocusedSchedule()
     if (result.account) {
       provider.value = result.account.provider
       email.value = result.account.email
@@ -505,6 +514,13 @@ async function load(): Promise<void> {
   } finally {
     loading.value = false
   }
+}
+
+async function scrollToFocusedSchedule(): Promise<void> {
+  const id = store.scheduleFocusId
+  if (!id) return
+  await nextTick()
+  document.getElementById(`mail-schedule-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
 }
 
 async function scanMailbox(): Promise<void> {
@@ -610,6 +626,7 @@ function onClosed(): void {
 }
 
 watch(() => props.modelValue, open => { if (open) void load() })
+watch(() => store.scheduleFocusId, () => { if (visible.value) void scrollToFocusedSchedule() })
 watch(() => scheduleDraft.value.timeMode, timeMode => {
   if (timeMode === 'fixed') {
     scheduleDraft.value.windowStartAt = null
@@ -820,7 +837,7 @@ watch(() => scheduleDraft.value.timeMode, timeMode => {
           </el-radio-group>
         </div>
         <div v-if="visibleScheduleItems.length" class="confirmed-schedule-list">
-          <article v-for="item in visibleScheduleItems" :key="item.id" class="confirmed-schedule-card" :class="item.status">
+          <article v-for="item in visibleScheduleItems" :id="`mail-schedule-${item.id}`" :key="item.id" class="confirmed-schedule-card" :class="item.status">
             <div class="schedule-date-badge">
               <b>{{ item.primaryAt ? item.primaryAt.slice(5, 10) : '待定' }}</b>
               <span>{{ item.primaryAt ? item.primaryAt.slice(11) : '时间' }}</span>
@@ -987,6 +1004,9 @@ watch(() => scheduleDraft.value.timeMode, timeMode => {
                     <el-option v-for="option in eventOptions" :key="option.value" :value="option.value" :label="option.label" />
                   </el-select>
                 </el-form-item>
+                <el-form-item label="面试轮次（可选）">
+                  <el-input v-model="scheduleDraft.round" maxlength="40" placeholder="例如：一面、二面、HR 面" />
+                </el-form-item>
                 <el-form-item label="时间规则">
                   <el-select v-model="scheduleDraft.timeMode" style="width: 100%">
                     <el-option v-for="option in timeModeOptions" :key="option.value" :value="option.value" :label="option.label" />
@@ -1073,7 +1093,7 @@ watch(() => scheduleDraft.value.timeMode, timeMode => {
               type="primary"
               :loading="confirmingSchedule"
               @click="confirmSchedule"
-            >{{ analysisCandidate.scheduleId ? '保存日程修改' : '加入招聘日程' }}</el-button>
+            >{{ analysisCandidate.scheduleId ? '保存日程修改' : analysisCandidate.scheduleReview?.decision === 'auto_confirm' ? '加入招聘日程' : '人工确认并加入日程' }}</el-button>
           </div>
         </footer>
       </div>

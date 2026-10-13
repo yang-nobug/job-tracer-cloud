@@ -8,6 +8,7 @@ import { avatarColor } from '../utils/avatar'
 import StatusTag from './StatusTag.vue'
 import EventTimeline from './EventTimeline.vue'
 import InterviewPanel from './InterviewPanel.vue'
+import RecruitmentSchedulePanel from './RecruitmentSchedulePanel.vue'
 import { safeExternalUrl } from '../utils/external-url'
 
 const props = defineProps<{ appId: number | null }>()
@@ -159,7 +160,11 @@ function fmtDate(s: string | null): string {
       </details>
 
       <section class="section">
-        <div class="section-title"><div><p>INTERVIEW</p><h3>面试安排</h3></div></div>
+        <RecruitmentSchedulePanel :app-id="detail.id" />
+      </section>
+
+      <section class="section">
+        <div class="section-title"><div><p>INTERVIEW PREPARATION</p><h3>面试准备与复盘</h3></div></div>
         <InterviewPanel :app-id="detail.id" :interviews="detail.interviews" />
       </section>
 

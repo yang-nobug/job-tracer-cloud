@@ -227,10 +227,11 @@ async function save(confirmStage = false): Promise<void> {
       committedImport = importDraft.value?.id
     }
     if (stageRound) {
-      await api.post(`/applications/${savedApplication.id}/interviews`, {
-        round: stageRound,
-        scheduled_at: stageForm.scheduled_at,
-        location: stageForm.location
+      await api.post(`/applications/${savedApplication.id}/schedules`, {
+        eventType: pendingStageStatus.value === 'assessment' ? 'assessment' : pendingStageStatus.value === 'testing' ? 'written_test' : pendingStageStatus.value === 'ai' ? 'ai_interview' : 'interview',
+        round: stageRound, title: '', timeMode: 'fixed', scheduledAt: stageForm.scheduled_at,
+        windowStartAt: null, windowEndAt: null, deadlineAt: null, durationMinutes: null,
+        location: stageForm.location, meetingLink: '', actionLink: '', contact: '', instructions: [], createInterview: true
       })
       stageDialogOpen.value = false
       pendingStageStatus.value = null

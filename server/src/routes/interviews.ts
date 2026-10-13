@@ -10,6 +10,7 @@ export const interviewsRouter = Router()
 const ROUND_TO_STATUS: Record<string, Status> = {
   心理测评: 'assessment', 笔试: 'testing', AI面: 'ai', 一面: 'round1', 二面: 'round2', 三面: 'round3', HR面: 'hr'
 }
+const ROUND_TO_EVENT: Record<string, string> = { 心理测评: 'assessment', 笔试: 'written_test', AI面: 'ai_interview' }
 const fields = 'id, application_id, round, scheduled_at, location, review_file, done::integer AS done, created_at'
 
 async function ownedInterview(workspaceId: string, id: number) {
@@ -27,13 +28,18 @@ interviewsRouter.post('/applications/:id/interviews', async (req: Request, res: 
   if (!round) return res.status(422).json({ message: '轮次不能为空' })
   if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(scheduledAt)) return res.status(422).json({ message: '时间格式应为 YYYY-MM-DD HH:mm' })
   const sql = getPostgresSql()
-  const apps = await sql.unsafe('SELECT id,status FROM applications WHERE workspace_id=$1 AND id=$2', [workspaceId, appId]) as Array<{ id: number; status: Status }>
+  const apps = await sql.unsafe('SELECT id,status,company,position FROM applications WHERE workspace_id=$1 AND id=$2', [workspaceId, appId]) as Array<{ id: number; status: Status; company: string; position: string }>
   const app = apps[0]
   if (!app) return res.status(404).json({ message: '记录不存在' })
   const location = typeof req.body?.location === 'string' ? req.body.location.trim() || null : null
   const created = await sql.unsafe(
     `INSERT INTO interviews (workspace_id,application_id,round,scheduled_at,location) VALUES ($1,$2,$3,$4,$5) RETURNING ${fields}`,
     [workspaceId, appId, round, scheduledAt, location]
+  )
+  await sql.unsafe(
+    `INSERT INTO workspace_recruitment_schedules (workspace_id,application_id,interview_id,source,event_type,round,title,company,position,time_mode,scheduled_at,location,instructions_json)
+     VALUES ($1,$2,$3,'manual',$4,$5,$6,$7,$8,'fixed',$9,$10,'[]')`,
+    [workspaceId, appId, created[0].id, ROUND_TO_EVENT[round] ?? 'interview', round, `${app.company} · ${app.position} · ${round}`, app.company, app.position, scheduledAt, location ?? '']
   )
   await sql.unsafe(`INSERT INTO application_events (workspace_id,application_id,type,event_date,content) VALUES ($1,$2,'interview',$3,$4)`, [workspaceId, appId, localDate(), `添加面试：${round} ${scheduledAt}${location ? ` @${location}` : ''}`])
   const target = ROUND_TO_STATUS[round]
@@ -58,6 +64,14 @@ interviewsRouter.patch('/interviews/:id', async (req: Request, res: Response) =>
   const rows = await getPostgresSql().unsafe(
     `UPDATE interviews SET round=$1,scheduled_at=$2,location=$3,done=$4 WHERE workspace_id=$5 AND id=$6 RETURNING ${fields}`,
     [round, scheduledAt, location, done, workspaceId, id]
+  )
+  await getPostgresSql().unsafe(
+    `UPDATE workspace_recruitment_schedules
+     SET round=$1,scheduled_at=$2,location=$3,
+       status=CASE WHEN $4 THEN 'completed' WHEN status='completed' THEN 'active' ELSE status END,
+       updated_at=now()
+     WHERE workspace_id=$5 AND interview_id=$6`,
+    [round, scheduledAt, location ?? '', done, workspaceId, id]
   )
   if (scheduledAt !== previous.scheduled_at) await getPostgresSql().unsafe(
     `INSERT INTO application_events (workspace_id,application_id,type,event_date,content) VALUES ($1,$2,'interview',$3,$4)`,

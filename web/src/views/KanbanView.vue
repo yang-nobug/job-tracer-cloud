@@ -134,14 +134,11 @@ async function confirmInterview(): Promise<void> {
     return
   }
   try {
-    // 先改状态再补面试记录：状态已到位后，面试接口就不会重复写状态事件
-    if (p.app.status !== p.key) {
-      await api.put(`/applications/${p.app.id}`, { ...p.app, status: p.key })
-    }
-    await api.post(`/applications/${p.app.id}/interviews`, {
-      round: STATUS_LABELS[p.key],
-      scheduled_at: ivForm.scheduled_at,
-      location: ivForm.location
+    await api.post(`/applications/${p.app.id}/schedules`, {
+      eventType: p.key === 'assessment' ? 'assessment' : p.key === 'testing' ? 'written_test' : p.key === 'ai' ? 'ai_interview' : 'interview',
+      round: STATUS_LABELS[p.key], title: '', timeMode: 'fixed', scheduledAt: ivForm.scheduled_at,
+      windowStartAt: null, windowEndAt: null, deadlineAt: null, durationMinutes: null,
+      location: ivForm.location, meetingLink: '', actionLink: '', contact: '', instructions: [], createInterview: true
     })
     ElMessage.success(`已记录${STATUS_LABELS[p.key]}安排`)
     store.dataVersion++
@@ -301,7 +298,7 @@ const GROUP_COLOR = '#f5a623'
             <div class="card-meta">
               <span>{{ element.applied_at?.slice(5) || '未投' }}</span>
               <span v-if="element.next_interview_at" class="card-next">
-                🎤 {{ element.next_interview_at.slice(5, 11) }}
+                ⏰ {{ element.next_interview_at.slice(5, 11) }}
               </span>
               <span v-else-if="element.channel" class="card-channel">{{ element.channel }}</span>
             </div>
@@ -358,7 +355,7 @@ const GROUP_COLOR = '#f5a623'
                 <div class="card-meta">
                   <span>{{ element.applied_at?.slice(5) || '未投' }}</span>
                   <span v-if="element.next_interview_at" class="card-next">
-                    🎤 {{ element.next_interview_at.slice(5, 11) }}
+                    ⏰ {{ element.next_interview_at.slice(5, 11) }}
                   </span>
                   <span v-else-if="element.channel" class="card-channel">{{ element.channel }}</span>
                 </div>
@@ -416,7 +413,7 @@ const GROUP_COLOR = '#f5a623'
                 <div class="card-meta">
                   <span>{{ element.applied_at?.slice(5) || '未投' }}</span>
                   <span v-if="element.next_interview_at" class="card-next">
-                    🎤 {{ element.next_interview_at.slice(5, 11) }}
+                    ⏰ {{ element.next_interview_at.slice(5, 11) }}
                   </span>
                   <span v-else-if="element.channel" class="card-channel">{{ element.channel }}</span>
                 </div>
@@ -482,7 +479,7 @@ const GROUP_COLOR = '#f5a623'
             <div class="card-meta">
               <span>{{ element.applied_at?.slice(5) || '未投' }}</span>
               <span v-if="element.next_interview_at" class="card-next">
-                🎤 {{ element.next_interview_at.slice(5, 11) }}
+                ⏰ {{ element.next_interview_at.slice(5, 11) }}
               </span>
               <span v-else-if="element.channel" class="card-channel">{{ element.channel }}</span>
             </div>

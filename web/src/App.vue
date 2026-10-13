@@ -61,6 +61,7 @@ async function signOut(): Promise<void> {
 }
 
 function openUpcoming(item: UpcomingItem): void {
+  store.scheduleFocusId = item.kind === 'schedule' ? item.id : null
   if (!item.application_id) {
     // 没有关联投递的独立邮件日程无法跳到公司详情，改为打开日程管理页。
     mailSettingsOpen.value = true

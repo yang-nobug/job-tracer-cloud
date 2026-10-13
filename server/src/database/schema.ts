@@ -472,8 +472,38 @@ export const workspaceMailCandidateAnalyses = pgTable('workspace_mail_candidate_
 })
 
 export const workspaceRecruitmentSchedules = pgTable('workspace_recruitment_schedules', {
-  id: serial('id').primaryKey(), workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }), applicationId: integer('application_id'), sourceMailCandidateId: integer('source_mail_candidate_id').references(() => workspaceMailCandidates.id, { onDelete: 'set null' }), eventType: varchar('event_type', { length: 32 }).notNull(), title: text('title').notNull(), company: text('company').notNull().default(''), position: text('position').notNull().default(''), timeMode: varchar('time_mode', { length: 32 }).notNull(), scheduledAt: varchar('scheduled_at', { length: 16 }), windowStartAt: varchar('window_start_at', { length: 16 }), windowEndAt: varchar('window_end_at', { length: 16 }), deadlineAt: varchar('deadline_at', { length: 16 }), durationMinutes: integer('duration_minutes'), timezone: varchar('timezone', { length: 64 }).notNull().default('Asia/Shanghai'), location: text('location').notNull().default(''), meetingLink: text('meeting_link').notNull().default(''), actionLink: text('action_link').notNull().default(''), contact: text('contact').notNull().default(''), instructionsJson: text('instructions_json').notNull().default('[]'), status: varchar('status', { length: 16 }).notNull().default('active'), createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
-}, table => [uniqueIndex('workspace_recruitment_schedules_candidate_unique').on(table.sourceMailCandidateId), index('workspace_recruitment_schedules_workspace_time_idx').on(table.workspaceId, table.scheduledAt)])
+  id: serial('id').primaryKey(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  applicationId: integer('application_id'),
+  sourceMailCandidateId: integer('source_mail_candidate_id').references(() => workspaceMailCandidates.id, { onDelete: 'set null' }),
+  source: varchar('source', { length: 16 }).notNull().default('mail'),
+  interviewId: integer('interview_id').references(() => interviews.id, { onDelete: 'set null' }),
+  eventType: varchar('event_type', { length: 32 }).notNull(),
+  round: varchar('round', { length: 40 }).notNull().default(''),
+  title: text('title').notNull(),
+  company: text('company').notNull().default(''),
+  position: text('position').notNull().default(''),
+  timeMode: varchar('time_mode', { length: 32 }).notNull(),
+  scheduledAt: varchar('scheduled_at', { length: 16 }),
+  windowStartAt: varchar('window_start_at', { length: 16 }),
+  windowEndAt: varchar('window_end_at', { length: 16 }),
+  deadlineAt: varchar('deadline_at', { length: 16 }),
+  durationMinutes: integer('duration_minutes'),
+  timezone: varchar('timezone', { length: 64 }).notNull().default('Asia/Shanghai'),
+  location: text('location').notNull().default(''),
+  meetingLink: text('meeting_link').notNull().default(''),
+  actionLink: text('action_link').notNull().default(''),
+  contact: text('contact').notNull().default(''),
+  instructionsJson: text('instructions_json').notNull().default('[]'),
+  status: varchar('status', { length: 16 }).notNull().default('active'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+}, table => [
+  uniqueIndex('workspace_recruitment_schedules_candidate_unique').on(table.sourceMailCandidateId),
+  uniqueIndex('workspace_recruitment_schedules_interview_unique').on(table.interviewId),
+  index('workspace_recruitment_schedules_workspace_time_idx').on(table.workspaceId, table.scheduledAt),
+  index('workspace_recruitment_schedules_workspace_application_idx').on(table.workspaceId, table.applicationId, table.status)
+])
 
 export const workspaceMailStatusUpdates = pgTable('workspace_mail_status_updates', {
   sourceMailCandidateId: integer('source_mail_candidate_id').primaryKey().references(() => workspaceMailCandidates.id, { onDelete: 'cascade' }), workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }), applicationId: integer('application_id').notNull(), scheduleId: integer('schedule_id').notNull().references(() => workspaceRecruitmentSchedules.id, { onDelete: 'cascade' }), fromStatus: varchar('from_status', { length: 24 }).notNull(), toStatus: varchar('to_status', { length: 24 }).notNull(), createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
