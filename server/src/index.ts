@@ -26,6 +26,7 @@ import { cloudAiAuditRouter } from './routes/cloud-ai-audit.js'
 import { cloudAiSettingsRouter } from './routes/cloud-ai-settings.js'
 import { cloudObservabilityRouter } from './routes/cloud-observability.js'
 import { sharedJobsRouter } from './routes/shared-jobs.js'
+import { leaderboardRouter } from './routes/leaderboard.js'
 import { studyRouter } from './routes/study.js'
 import { refreshPlatformAiSettings } from './platform-ai-settings.js'
 import {
@@ -108,6 +109,7 @@ app.use('/api', cloudAiSettingsRouter)
 app.use('/api', cloudAiAuditRouter)
 app.use('/api', cloudObservabilityRouter)
 app.use('/api', sharedJobsRouter)
+app.use('/api', leaderboardRouter)
 app.use('/api/study', studyRouter)
 app.use('/api/application-imports', cloudApplicationImportsRouter)
 app.use('/api/local-data-import', localDataImportRouter)

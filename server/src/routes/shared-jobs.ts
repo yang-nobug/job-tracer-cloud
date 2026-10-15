@@ -125,7 +125,8 @@ async function consented(userId: string): Promise<boolean> {
   return Boolean(rows[0]?.shared_jobs_consent_at)
 }
 
-function requireConsent(req: Request): Promise<void> {
+/** 共享岗位和投递榜共用同一份互惠授权，不另设隐蔽的排行榜开关。 */
+export function requireSharedJobsConsent(req: Request): Promise<void> {
   const userId = req.auth?.userId
   if (!userId) throw new Error('请先登录')
   return consented(userId).then(enabled => {
@@ -311,7 +312,7 @@ sharedJobsRouter.put('/shared-jobs/consent', async (req, res, next) => {
 
 sharedJobsRouter.get('/shared-jobs', async (req, res, next) => {
   try {
-    await requireConsent(req)
+    await requireSharedJobsConsent(req)
     const workspaceId = requireWorkspaceId(req)
     const keyword = typeof req.query.keyword === 'string' ? req.query.keyword.trim().slice(0, 120) : ''
     const location = typeof req.query.location === 'string' ? req.query.location.trim().slice(0, 80) : ''
@@ -337,7 +338,7 @@ sharedJobsRouter.get('/shared-jobs', async (req, res, next) => {
 
 sharedJobsRouter.get('/shared-jobs/:id', async (req, res, next) => {
   try {
-    await requireConsent(req)
+    await requireSharedJobsConsent(req)
     const workspaceId = requireWorkspaceId(req)
     const id = parsePositiveId(req.params.id, '岗位编号')
     if (!id) return res.status(404).json({ message: '共享岗位不存在' })
@@ -349,7 +350,7 @@ sharedJobsRouter.get('/shared-jobs/:id', async (req, res, next) => {
 
 sharedJobsRouter.post('/shared-jobs/:id/add', async (req, res, next) => {
   try {
-    await requireConsent(req)
+    await requireSharedJobsConsent(req)
     const workspaceId = requireWorkspaceId(req)
     const id = parsePositiveId(req.params.id, '岗位编号')
     if (!id) return res.status(404).json({ message: '共享岗位不存在' })

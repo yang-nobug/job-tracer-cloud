@@ -12,6 +12,7 @@ import ReviewsView from './views/ReviewsView.vue'
 import KnowledgeView from './views/KnowledgeView.vue'
 import SourceDetailView from './views/SourceDetailView.vue'
 import SharedJobsView from './views/SharedJobsView.vue'
+import LeaderboardView from './views/LeaderboardView.vue'
 import StudyView from './views/StudyView.vue'
 import StudyBookView from './views/StudyBookView.vue'
 
@@ -27,6 +28,7 @@ const router = createRouter({
     { path: '/track/list', component: ListView },
     { path: '/track/stats', component: StatsView },
     { path: '/track/shared-jobs', component: SharedJobsView },
+    { path: '/track/leaderboard', component: LeaderboardView },
     // 学习成长
     { path: '/learn/reviews', component: ReviewsView },
     { path: '/learn/knowledge', component: KnowledgeView },

@@ -179,7 +179,7 @@ onUnmounted(() => window.removeEventListener('job-tracer:shared-jobs-revoked', o
       <div>
         <p class="page-kicker">SHARED JOBS</p>
         <h1>共享岗位</h1>
-        <p>同意共享的用户可以互相查看岗位 JD；个人投递进度、面试、简历和联系方式始终保持私有。</p>
+      <p>同意共享的用户可以互相查看岗位 JD，并参与投递数量排行榜；个人投递进度、面试、简历和联系方式始终保持私有。</p>
       </div>
       <div class="intro-count"><b>{{ totalJobs }}</b><span>个共享岗位</span><small>来自 {{ totalSources }} 条投递</small></div>
     </header>
@@ -231,7 +231,7 @@ onUnmounted(() => window.removeEventListener('job-tracer:shared-jobs-revoked', o
 
     <el-dialog :model-value="consented === false" title="加入共享岗位" width="min(520px, calc(100vw - 28px))" :close-on-click-modal="false" :show-close="false" :close-on-press-escape="false">
       <p class="consent-lead">共享岗位是互惠功能：同意共享后，才能查看其他用户汇总的岗位信息。</p>
-      <div class="consent-box"><b>会共享</b><p>公司、岗位、地点、岗位类型、JD 正文和 JD 链接。</p><b>不会共享</b><p>投递进度链接、投递进度、日程、面经、简历、联系人、联系方式、附件和 AI 记录。</p></div>
+      <div class="consent-box"><b>会共享</b><p>公司、岗位、地点、岗位类型、JD 正文和 JD 链接；排行榜中会展示昵称和有效投递数量。</p><b>不会共享</b><p>投递进度链接、投递进度、日程、面经、简历、联系人、联系方式、附件和 AI 记录。</p></div>
       <template #footer><el-button @click="leaveSharedJobs">暂不同意</el-button><el-button type="primary" :loading="consentSaving" @click="acceptConsent">同意共享并进入</el-button></template>
     </el-dialog>
   </section>

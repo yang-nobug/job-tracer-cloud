@@ -145,6 +145,7 @@ watch(() => route.path, path => {
             <router-link to="/track/list" class="nav-link" :class="{ active: route.path === '/track/list' }">列表</router-link>
             <router-link to="/track/stats" class="nav-link" :class="{ active: route.path === '/track/stats' }">统计</router-link>
             <router-link to="/track/shared-jobs" class="nav-link" :class="{ active: route.path === '/track/shared-jobs' }">共享岗位</router-link>
+            <router-link to="/track/leaderboard" class="nav-link" :class="{ active: route.path === '/track/leaderboard' }">排行榜</router-link>
           </template>
           <template v-else>
             <router-link to="/learn/reviews" class="nav-link" :class="{ active: route.path === '/learn/reviews' }">复盘</router-link>
