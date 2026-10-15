@@ -33,8 +33,6 @@ const board = ref<LeaderboardResponse | null>(null)
 const periodOptions: Array<{ value: Period; label: string }> = [
   { value: 'week', label: '本周' }, { value: 'month', label: '本月' }, { value: 'all', label: '全部' }
 ]
-const topThree = computed(() => board.value?.entries.slice(0, 3) ?? [])
-const remaining = computed(() => board.value?.entries.slice(3) ?? [])
 const currentInTopList = computed(() => {
   const current = board.value?.currentUser
   return current ? (board.value?.entries ?? []).some(item => item.userId === current.userId) : false
@@ -110,20 +108,11 @@ onUnmounted(() => window.removeEventListener('job-tracer:shared-jobs-revoked', o
         <article v-if="board.currentUser"><span>我的名次</span><b>#{{ board.currentUser.rank }}</b><small>{{ board.currentUser.count }} 次有效投递</small></article>
       </section>
 
-      <section class="podium" :class="{ compact: topThree.length < 3 }">
-        <article v-for="entry in topThree" :key="entry.userId" class="podium-card" :class="rankClass(entry.rank)">
-          <span class="medal">{{ rankMark(entry.rank) }}</span>
-          <span class="avatar" :style="avatarStyle(entry.displayName)">{{ avatarText(entry.displayName) }}</span>
-          <b>{{ entry.displayName }}</b>
-          <strong>{{ entry.count }}</strong><small>次有效投递</small>
-        </article>
-      </section>
-
       <section class="rank-list">
         <div class="list-heading"><h2>完整排名</h2><span>相同投递数并列同一名次</span></div>
         <el-empty v-if="!board.entries.length" description="暂时还没有可统计的有效投递" :image-size="76" />
-        <article v-for="entry in remaining" :key="entry.userId" class="rank-row" :class="{ mine: entry.userId === board.currentUser?.userId }">
-          <b class="rank-number">{{ entry.rank }}</b>
+        <article v-for="entry in board.entries" :key="entry.userId" class="rank-row" :class="[rankClass(entry.rank), { mine: entry.userId === board.currentUser?.userId }]">
+          <b class="rank-number">{{ rankMark(entry.rank) }}</b>
           <span class="avatar small" :style="avatarStyle(entry.displayName)">{{ avatarText(entry.displayName) }}</span>
           <span class="name">{{ entry.displayName }}</span>
           <strong>{{ entry.count }}</strong><small>次</small>
@@ -144,6 +133,51 @@ onUnmounted(() => window.removeEventListener('job-tracer:shared-jobs-revoked', o
 </template>
 
 <style scoped>
-.leaderboard-page { min-height: 500px; }.leaderboard-hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; margin: 2px 0 20px; }.page-kicker { margin: 0 0 4px; color: var(--jt-primary); font-size: 11px; font-weight: 800; letter-spacing: 1.1px; }.leaderboard-hero h1 { margin: 0; font-size: 25px; letter-spacing: -.5px; }.leaderboard-hero p:not(.page-kicker) { max-width: 680px; margin: 8px 0 0; color: var(--jt-text-muted); font-size: 13px; line-height: 1.65; }.period-tabs { flex: none; }.summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }.summary-grid article { display: grid; padding: 15px 17px; border: 1px solid var(--jt-line); border-radius: 12px; background: var(--jt-surface); }.summary-grid span,.summary-grid small { color: var(--jt-text-muted); font-size: 12px; }.summary-grid b { margin: 6px 0 3px; color: var(--jt-primary); font-size: 26px; line-height: 1; }.podium { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }.podium.compact { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }.podium-card { position: relative; display: grid; min-height: 168px; place-items: center; align-content: center; padding: 18px; border: 1px solid var(--jt-line); border-radius: 14px; background: var(--jt-surface); text-align: center; }.podium-card.rank-1 { border-color: #f2d792; background: linear-gradient(155deg, #fffdf5, #fff8e4); }.podium-card.rank-2 { border-color: #d8dfe9; background: #fbfcff; }.podium-card.rank-3 { border-color: #e5c4ad; background: #fffaf7; }.medal { position: absolute; top: 11px; left: 12px; font-size: 20px; }.avatar { display: grid; width: 46px; height: 46px; place-items: center; border-radius: 50%; color: #fff; font-size: 18px; font-weight: 800; }.avatar.small { width: 32px; height: 32px; font-size: 13px; }.podium-card b { max-width: 100%; margin-top: 8px; overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }.podium-card strong { margin-top: 7px; color: var(--jt-primary); font-size: 24px; line-height: 1; }.podium-card small { margin-top: 2px; color: var(--jt-text-muted); font-size: 11px; }.rank-list { margin-top: 18px; padding: 2px 17px; border: 1px solid var(--jt-line); border-radius: 12px; background: var(--jt-surface); }.list-heading { display: flex; justify-content: space-between; align-items: center; padding: 14px 0; border-bottom: 1px solid var(--jt-line); }.list-heading h2 { margin: 0; font-size: 15px; }.list-heading span { color: var(--jt-text-muted); font-size: 12px; }.rank-row { display: grid; grid-template-columns: 36px 32px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; min-height: 58px; border-bottom: 1px solid var(--jt-line); }.rank-row:last-child { border-bottom: 0; }.rank-row.mine { margin: 0 -8px; padding: 0 8px; border-radius: 8px; background: #f0f6ff; }.rank-number { color: #7e8999; text-align: center; font-size: 14px; }.rank-row .name { overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }.rank-row strong { color: var(--jt-primary); font-size: 16px; }.rank-row small { color: var(--jt-text-muted); font-size: 12px; }.my-rank { display: flex; align-items: center; gap: 11px; margin-top: 14px; padding: 14px 16px; border: 1px solid #bfd4f9; border-radius: 11px; background: #f4f8ff; }.my-rank span { color: var(--jt-text-muted); font-size: 13px; }.my-rank b,.my-rank strong { color: var(--jt-primary); }.my-rank strong { margin-left: auto; font-size: 13px; }.consent-lead { margin: 0; color: #45546a; line-height: 1.7; }.consent-box { margin-top: 15px; padding: 14px; border: 1px solid #dce7fa; border-radius: 10px; background: #f7faff; }.consent-box b { font-size: 13px; }.consent-box p { margin: 4px 0 12px; color: #66758a; font-size: 12px; line-height: 1.6; }.consent-box p:last-child { margin-bottom: 0; }
-@media (max-width: 680px) { .leaderboard-hero { align-items: stretch; flex-direction: column; }.period-tabs { align-self: flex-start; }.summary-grid { grid-template-columns: 1fr; }.podium { grid-template-columns: 1fr; }.rank-list { padding: 2px 12px; }.list-heading span { display: none; }.rank-row { grid-template-columns: 30px 32px minmax(0, 1fr) auto auto; gap: 7px; }.my-rank { flex-wrap: wrap; }.my-rank strong { width: 100%; margin-left: 0; } }
+.leaderboard-page { min-height: 500px; }
+.leaderboard-hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; margin: 2px 0 20px; }
+.page-kicker { margin: 0 0 4px; color: var(--jt-primary); font-size: 11px; font-weight: 800; letter-spacing: 1.1px; }
+.leaderboard-hero h1 { margin: 0; font-size: 25px; letter-spacing: -.5px; }
+.leaderboard-hero p:not(.page-kicker) { max-width: 680px; margin: 8px 0 0; color: var(--jt-text-muted); font-size: 13px; line-height: 1.65; }
+.period-tabs { flex: none; }
+.summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.summary-grid article { display: grid; padding: 15px 17px; border: 1px solid var(--jt-line); border-radius: 12px; background: var(--jt-surface); }
+.summary-grid span, .summary-grid small { color: var(--jt-text-muted); font-size: 12px; }
+.summary-grid b { margin: 6px 0 3px; color: var(--jt-primary); font-size: 26px; line-height: 1; }
+.avatar { display: grid; place-items: center; border-radius: 50%; color: #fff; font-weight: 800; }
+.avatar.small { width: 34px; height: 34px; font-size: 13px; }
+.rank-list { margin-top: 18px; padding: 2px 17px; border: 1px solid var(--jt-line); border-radius: 12px; background: var(--jt-surface); }
+.list-heading { display: flex; align-items: center; justify-content: space-between; padding: 14px 0; border-bottom: 1px solid var(--jt-line); }
+.list-heading h2 { margin: 0; font-size: 15px; }
+.list-heading span { color: var(--jt-text-muted); font-size: 12px; }
+.rank-row { display: grid; grid-template-columns: 42px 34px minmax(0, 1fr) auto auto; gap: 11px; align-items: center; min-height: 64px; border-bottom: 1px solid var(--jt-line); }
+.rank-row:last-child { border-bottom: 0; }
+.rank-row.rank-1 { margin: 0 -9px; padding: 0 9px; background: linear-gradient(90deg, #fffaf0, #fff); }
+.rank-row.rank-2 { margin: 0 -9px; padding: 0 9px; background: #fbfcff; }
+.rank-row.rank-3 { margin: 0 -9px; padding: 0 9px; background: #fffaf7; }
+.rank-row.mine { box-shadow: inset 3px 0 0 var(--jt-primary); }
+.rank-number { color: #7e8999; text-align: center; font-size: 14px; }
+.rank-1 .rank-number, .rank-2 .rank-number, .rank-3 .rank-number { font-size: 21px; }
+.rank-row .name { overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.rank-row strong { color: var(--jt-primary); font-size: 16px; }
+.rank-row small { color: var(--jt-text-muted); font-size: 12px; }
+.my-rank { display: flex; align-items: center; gap: 11px; margin-top: 14px; padding: 14px 16px; border: 1px solid #bfd4f9; border-radius: 11px; background: #f4f8ff; }
+.my-rank span { color: var(--jt-text-muted); font-size: 13px; }
+.my-rank b, .my-rank strong { color: var(--jt-primary); }
+.my-rank strong { margin-left: auto; font-size: 13px; }
+.consent-lead { margin: 0; color: #45546a; line-height: 1.7; }
+.consent-box { margin-top: 15px; padding: 14px; border: 1px solid #dce7fa; border-radius: 10px; background: #f7faff; }
+.consent-box b { font-size: 13px; }
+.consent-box p { margin: 4px 0 12px; color: #66758a; font-size: 12px; line-height: 1.6; }
+.consent-box p:last-child { margin-bottom: 0; }
+@media (max-width: 680px) {
+  .leaderboard-hero { align-items: stretch; flex-direction: column; }
+  .period-tabs { align-self: flex-start; }
+  .summary-grid { grid-template-columns: 1fr; }
+  .rank-list { padding: 2px 12px; }
+  .list-heading span { display: none; }
+  .rank-row { grid-template-columns: 34px 34px minmax(0, 1fr) auto auto; gap: 7px; min-height: 60px; }
+  .rank-row.rank-1, .rank-row.rank-2, .rank-row.rank-3 { margin: 0 -5px; padding: 0 5px; }
+  .my-rank { flex-wrap: wrap; }
+  .my-rank strong { width: 100%; margin-left: 0; }
+}
 </style>
